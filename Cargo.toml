@@ -1,0 +1,31 @@
+[package]
+name = "aios"
+version = "0.1.0"
+edition = "2021"
+description = "AIOS — a Memory Operating System kernel for LLMs. Rust port of the Python-era prototype."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "aios"
+path = "src/main.rs"
+
+[[bin]]
+name = "eval"
+path = "src/bin/eval.rs"
+
+[[bin]]
+name = "stress"
+path = "src/bin/stress.rs"
+
+[profile.release]
+opt-level = 3
+
+[workspace]
+members = [".", "kvpoc"]
+
+[[bin]]
+name = "transfer"
+path = "src/bin/transfer.rs"

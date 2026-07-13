@@ -1,0 +1,25 @@
+# secrets
+.env
+
+# build
+/target
+/kvpoc/target
+.venv/
+__pycache__/
+
+# data and heavy artifacts (regenerable; see README)
+/data/
+/ft_data/
+/ft_data_r1/
+/adapters/
+/adapters_r2/
+/fullbench/
+/fused*/
+/kv_slots/
+/kv_blocks/
+/kv_sym/
+*.gguf
+*.log
+
+# os
+.DS_Store
