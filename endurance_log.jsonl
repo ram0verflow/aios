@@ -1,0 +1,1 @@
+{"turn": 1, "phase": "fact", "latency_s": 10.0, "used": 19, "budget": 1200, "level": "OK", "evictions": 0, "loaded": 0, "expect": null, "hit": null, "reply": "CONTEXT_NEEDED: gym locker code"}

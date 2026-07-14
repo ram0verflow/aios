@@ -92,7 +92,18 @@
   #stats .n { font-size: 17px; color: var(--ink); font-variant-numeric: tabular-nums; }
   #stats .l { font-size: 9.5px; color: var(--faint); letter-spacing: 0.1em; margin-top: 2px; }
 
-  #log { flex: 1; overflow-y: auto; padding: 10px 16px 20px; }
+  #tabs { display: flex; gap: 4px; padding: 10px 16px 0; }
+  .tab {
+    background: none; border: 0; color: var(--faint); font: 600 10.5px var(--mono);
+    letter-spacing: 0.16em; padding: 4px 8px; cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  .tab.on { color: var(--dim); border-bottom-color: var(--acc); }
+  #log, #brain { flex: 1; overflow-y: auto; padding: 10px 16px 20px; }
+  .branch { background: var(--panel2); border-radius: 8px; padding: 9px 11px; margin-bottom: 10px; }
+  .branch .bn { color: var(--acc); margin-bottom: 3px; }
+  .branch .bs { color: var(--dim); line-height: 1.4; }
+  .branch .bd { color: var(--faint); margin-top: 4px; line-height: 1.4; }
+  #identity { color: var(--ok); line-height: 1.45; margin-bottom: 12px; }
   .ev { margin-bottom: 10px; line-height: 1.45; color: var(--dim); }
   .ev .t { color: var(--faint); }
   .ev.page .k { color: var(--acc); }
@@ -134,8 +145,14 @@
       <div><div class="n" id="sd">0</div><div class="l">FACTS</div></div>
       <div><div class="n" id="sa">0</div><div class="l">ARCHIVE</div></div>
     </div>
-    <h2>KERNEL LOG</h2>
+    <div id="tabs">
+      <button class="tab on" data-t="log">KERNEL LOG</button>
+      <button class="tab" data-t="brain">MEMORY</button>
+    </div>
     <div id="log"><div class="empty">memory events show up here</div></div>
+    <div id="brain" style="display:none">
+      <div class="empty">nothing remembered yet</div>
+    </div>
   </aside>
 </main>
 
@@ -182,55 +199,115 @@ async function refreshStatus() {
   try {
     const r = await (await fetch('/api/status')).json();
     $('hmodel').textContent = r.model;
-    $('hkv').textContent = r.kv ? 'on' : 'off';
+    $('hkv').textContent = r.kv ? (r.kv_restored > 0 ? `on, restored ${r.kv_restored} tok` : 'on') : 'off';
     $('hmem').textContent = `memory: ${r.store.archive + r.store.details} items, ${r.store.versions} versions`;
     setPressure(r.pressure);
     setStats(r.store);
   } catch (e) { /* server busy answering; try again later */ }
 }
 
+async function refreshBrain() {
+  try {
+    const r = await (await fetch('/api/memory')).json();
+    const el = $('brain');
+    if (!r.identity && (!r.branches || !r.branches.length)) {
+      el.innerHTML = '<div class="empty">nothing remembered yet</div>';
+      return;
+    }
+    let h = '';
+    if (r.identity) h += `<div id="identity">${esc(r.identity)}</div>`;
+    for (const b of r.branches || []) {
+      h += `<div class="branch"><div class="bn">${esc(b.name)}</div>`;
+      if (b.summary) h += `<div class="bs">${esc(b.summary)}</div>`;
+      for (const d of b.details || []) h += `<div class="bd">· ${esc(d)}</div>`;
+      if (b.archive > 0) h += `<div class="bd">${b.archive} archived messages</div>`;
+      h += `</div>`;
+    }
+    el.innerHTML = h;
+  } catch (e) { /* ignore */ }
+}
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  t.classList.add('on');
+  $('log').style.display = t.dataset.t === 'log' ? '' : 'none';
+  $('brain').style.display = t.dataset.t === 'brain' ? '' : 'none';
+  if (t.dataset.t === 'brain') refreshBrain();
+});
+
+// The chat endpoint streams server sent events; parse them off the reader.
 async function send() {
   const text = $('box').value.trim();
   if (!text) return;
   $('box').value = '';
   $('send').disabled = true;
   addMsg('you', text, 'user');
-  const thinking = addMsg('aios', '…', 'ai');
+  const think = addMsg('aios', '…', 'ai');
+  const body = think.querySelector('.body');
+  let acc = '';
+  let route = null, fault = null, done = null;
+
   try {
-    const r = await fetch('/api/chat', {
+    const res = await fetch('/api/chat', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({message: text}),
     });
-    const j = await r.json();
-    if (j.error) throw new Error(j.error);
-
-    const faulted = j.faulted && !j.retried;
-    thinking.className = 'msg ai' + (faulted ? ' fault' : '');
-    thinking.querySelector('.body').textContent = j.reply;
-
-    let meta = `paged in ${j.loaded} memories from ${j.namespace || '/social'}`;
-    if (j.faulted) meta += j.retried ? ` · <span class="f">fault → re-paged, recovered</span>`
-                                     : ` · <span class="f">fault: ${esc(j.fault_topic)}</span>`;
-    const m = document.createElement('div');
-    m.className = 'meta';
-    m.innerHTML = meta;
-    thinking.appendChild(m);
-
-    logEv(j.turn, 'page', 'page-in', `${j.loaded} memories (${j.namespace || '/social'})`);
-    if (j.faulted) logEv(j.turn, 'fault', 'fault', j.fault_topic + (j.retried ? ' (recovered)' : ''));
-    for (const w of j.remembered || []) {
-      logEv(j.turn, 'mem', 'remember', `${w.content}${w.branch ? ' [' + w.branch + ']' : ''}`);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {value, done: eof} = await reader.read();
+      if (eof) break;
+      buf += dec.decode(value, {stream: true});
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        if (!frame.startsWith('data: ')) continue;
+        const ev = JSON.parse(frame.slice(6));
+        if (ev.t === 'tok') {
+          acc += ev.v;
+          body.textContent = acc;
+          $('msgs').scrollTop = $('msgs').scrollHeight;
+        } else if (ev.t === 'route') {
+          route = ev;
+          logEv('·', 'page', 'page-in', `${ev.loaded} memories (${ev.namespace || '/social'})`);
+        } else if (ev.t === 'fault') {
+          fault = ev;
+          acc = '';
+          body.textContent = '… re-paging memory …';
+        } else if (ev.t === 'mem') {
+          logEv('·', 'mem', 'remember', `${ev.content}${ev.branch ? ' [' + ev.branch + ']' : ''}`);
+        } else if (ev.t === 'evict') {
+          logEv('·', 'evict', 'evict', `${ev.n} messages demoted to archive`);
+        } else if (ev.t === 'done') {
+          done = ev;
+        }
+      }
     }
-    if (j.evicted > 0) logEv(j.turn, 'evict', 'evict', `${j.evicted} messages demoted to archive`);
-    setPressure(j.pressure);
+    if (done) {
+      body.textContent = done.reply;
+      const stillFaulted = done.faulted && !done.retried;
+      think.className = 'msg ai' + (stillFaulted ? ' fault' : '');
+      let meta = `paged in ${done.loaded} memories from ${done.namespace || '/social'}`;
+      if (done.faulted) meta += done.retried ? ` · <span class="f">fault → re-paged, recovered</span>`
+                                             : ` · <span class="f">fault: ${esc(fault ? fault.topic : '')}</span>`;
+      const m = document.createElement('div');
+      m.className = 'meta';
+      m.innerHTML = meta;
+      think.appendChild(m);
+      if (done.faulted) logEv(done.turn, 'fault', 'fault', (fault ? fault.topic : '') + (done.retried ? ' (recovered)' : ''));
+      setPressure(done.pressure);
+    }
   } catch (e) {
-    thinking.className = 'msg ai fault';
-    thinking.querySelector('.body').textContent = 'error: ' + e.message;
+    think.className = 'msg ai fault';
+    body.textContent = 'error: ' + e.message;
   }
   $('send').disabled = false;
   $('box').focus();
   refreshStatus();
+  if ($('brain').style.display !== 'none') refreshBrain();
 }
 
 $('send').onclick = send;

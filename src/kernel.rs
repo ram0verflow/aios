@@ -104,6 +104,11 @@ impl Kernel {
         self.kv.as_ref().ok_or("no KV backend mounted")?.restore_slot(0, filename)
     }
 
+    /// Public wrapper for surfaces that assemble their own message lists.
+    pub fn complete_messages(&self, messages: &[ChatMessage]) -> Result<String, String> {
+        self.complete(messages)
+    }
+
     /// One chat completion via whichever backend is mounted.
     fn complete(&self, messages: &[ChatMessage]) -> Result<String, String> {
         match &self.kv {
@@ -158,8 +163,10 @@ impl Kernel {
         SYSTEM_TEMPLATE.replace("{context}", &ctx)
     }
 
-    /// Full inference loop with the page-fault retry.
-    pub fn query(&self, user_message: &str, session: &[ChatMessage]) -> QueryResult {
+    /// Page in memory for a query and build the full message list, without
+    /// calling the model. Lets callers that stream generation themselves (the
+    /// web server) reuse the exact routing and assembly the kernel uses.
+    pub fn prepare(&self, user_message: &str, session: &[ChatMessage]) -> (Vec<ChatMessage>, QueryResult) {
         let mut result = QueryResult::default();
         let budget = self.compute_budget(session);
         result.memory_budget_tokens = budget;
@@ -175,26 +182,12 @@ impl Kernel {
             messages.push(m.clone());
         }
         messages.push(ChatMessage::new("user", user_message));
-
-        result.response = self.complete(&messages).unwrap_or_else(|e| format!("[ERROR: {e}]"));
-
-        // Page fault interception (spec §3.1).
-        if self.config.enable_page_faults {
-            if let Some(topic) = detect_page_fault(&result.response) {
-                result.page_faulted = true;
-                result.fault_topic = topic.clone();
-                if self.config.max_fault_retries > 0 {
-                    if let Some(retry) = self.handle_fault(&topic, user_message, session, budget) {
-                        result.response = retry;
-                        result.fault_retried = true;
-                    }
-                }
-            }
-        }
-        result
+        (messages, result)
     }
 
-    fn handle_fault(&self, topic: &str, user_msg: &str, session: &[ChatMessage], budget: usize) -> Option<String> {
+    /// Same as prepare, but pages in on the FAULT topic instead of the user
+    /// message. Returns None when nothing pages in for that topic.
+    pub fn prepare_fault(&self, topic: &str, user_msg: &str, session: &[ChatMessage], budget: usize) -> Option<Vec<ChatMessage>> {
         let (context, _ns, _path, _n) = self.page_in(topic, budget);
         if context.trim().is_empty() {
             return None;
@@ -205,6 +198,33 @@ impl Kernel {
             messages.push(m.clone());
         }
         messages.push(ChatMessage::new("user", user_msg));
+        Some(messages)
+    }
+
+    /// Full inference loop with the page-fault retry.
+    pub fn query(&self, user_message: &str, session: &[ChatMessage]) -> QueryResult {
+        let (messages, mut result) = self.prepare(user_message, session);
+
+        result.response = self.complete(&messages).unwrap_or_else(|e| format!("[ERROR: {e}]"));
+
+        // Page fault interception (spec §3.1).
+        if self.config.enable_page_faults {
+            if let Some(topic) = detect_page_fault(&result.response) {
+                result.page_faulted = true;
+                result.fault_topic = topic.clone();
+                if self.config.max_fault_retries > 0 {
+                    if let Some(retry) = self.handle_fault(&topic, user_message, session, result.memory_budget_tokens) {
+                        result.response = retry;
+                        result.fault_retried = true;
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    fn handle_fault(&self, topic: &str, user_msg: &str, session: &[ChatMessage], budget: usize) -> Option<String> {
+        let messages = self.prepare_fault(topic, user_msg, session, budget)?;
         let resp = self.complete(&messages).ok()?;
         if resp.to_uppercase().contains("CONTEXT_NEEDED") {
             None

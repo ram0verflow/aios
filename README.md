@@ -71,12 +71,18 @@ One binary, no other dependencies, nothing leaves your machine.
 ./target/release/aios serve --model llama3.1:8b
 ```
 
-The left side is a chat. The right side shows what the kernel did on every
-turn: how many memories it paged in, whether it hit a page fault, what it
-decided to write back, and how full the context window is. Its memory lives
-in `companion/` on disk, so you can kill the process, start it again, and it
+The left side is a chat with streamed replies. The right side has two tabs:
+a kernel log showing what happened on every turn (memories paged in, page
+faults, what got written back, evictions) and a memory tab that lists what
+it currently believes about you, topic by topic. Its memory lives in
+`companion/` on disk, so you can kill the process, start it again, and it
 still knows what you told it. Tell it your name in one session and ask who
 you are in the next.
+
+There is an endurance script that hammers this loop: it plants ten facts,
+buries them under a hundred turns of unrelated chatter on the small fixed
+window, then asks for them back. `python3 endurance.py <port>` against a
+running server.
 
 Notes from using it: write back runs one extra model call per turn, so
 replies take a few seconds longer than plain chat. The 8B model sometimes
