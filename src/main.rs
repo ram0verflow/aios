@@ -21,10 +21,19 @@ fn main() {
         "tree" => describe_tree(args.get(2).map(|s| s.as_str())),
         "ask" => ask(&args[2..]),
         "chat" => chat(args.iter().any(|a| a == "--kv")),
+        "serve" => {
+            let port = flag_value(&args, "--port").and_then(|v| v.parse().ok()).unwrap_or(3210);
+            let model = flag_value(&args, "--model").unwrap_or_else(|| "llama3.1:8b".to_string());
+            aios::server::run(port, &model);
+        }
         _ => {
-            eprintln!("usage: aios [info | tree <conv.json> | ask <question> | chat [--kv]]");
+            eprintln!("usage: aios [info | tree <conv.json> | ask <question> | chat [--kv] | serve [--port P] [--model M]]");
         }
     }
+}
+
+fn flag_value(args: &[String], name: &str) -> Option<String> {
+    args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
 
 const KV_SESSION_FILE: &str = "chat_session.bin";
@@ -128,8 +137,8 @@ fn chat(use_kv: bool) {
             &aios::hierarchical::today_timestamp(),
             turn as f64,
         );
-        if wrote > 0 {
-            eprintln!("  [write-back: {wrote} memory update(s)]");
+        if !wrote.is_empty() {
+            eprintln!("  [write-back: {} memory update(s)]", wrote.len());
         }
 
         // Load the turn into RAM; evict under pressure; demotions → archive.

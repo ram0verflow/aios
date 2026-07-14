@@ -62,6 +62,28 @@ Basic use:
 ./target/release/aios chat
 ```
 
+## The companion
+
+`aios serve` runs the whole thing as a local web app on http://localhost:3210.
+One binary, no other dependencies, nothing leaves your machine.
+
+```
+./target/release/aios serve --model llama3.1:8b
+```
+
+The left side is a chat. The right side shows what the kernel did on every
+turn: how many memories it paged in, whether it hit a page fault, what it
+decided to write back, and how full the context window is. Its memory lives
+in `companion/` on disk, so you can kill the process, start it again, and it
+still knows what you told it. Tell it your name in one session and ask who
+you are in the next.
+
+Notes from using it: write back runs one extra model call per turn, so
+replies take a few seconds longer than plain chat. The 8B model sometimes
+decorates recalled facts, in one test it added a year to a date I never
+gave it. And if llama-server is already running on port 8080 the companion
+picks it up and uses KV state save and restore automatically.
+
 Chat with KV persistence (attention states saved to disk on exit, restored on start). Needs llama-server, which reads GGUF straight out of the Ollama blob store:
 
 ```
@@ -153,10 +175,11 @@ src/codegraph.rs     code driver: symbol extraction + BM25, no embeddings
 src/store.rs         four level versioned store
 src/eviction.rs      context window eviction and demotion
 src/llamaserver.rs   llama-server client for KV save/restore
+src/server.rs        the companion web app (aios serve), UI embedded from src/ui.html
 src/bin/eval.rs      LoCoMo runner
 src/bin/stress.rs    all ten conversations merged into one store
 src/bin/transfer.rs  fine tuned model on code questions it never trained on
 kvpoc/               KV cache proofs of concept
 ```
 
-Not done: a latency comparison against warm prefix caching, a test on a real repository instead of a synthetic one, and any kind of usable interface. That last one is next.
+Not done: a latency comparison against warm prefix caching, and a test on a real repository instead of a synthetic one.

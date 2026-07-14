@@ -46,6 +46,11 @@ pub trait MemoryIndexDriver {
     /// Render the given message indices into a context block within a token
     /// budget (~4 chars/token). Returns (text, tokens_used).
     fn load_messages(&self, indices: &[usize], budget_tokens: usize) -> (String, usize);
+
+    /// Persist driver state to disk, if the driver supports it. Default: no-op.
+    fn persist(&self, _path: &str) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Type-safe partitioned tree (spec §4.2).
@@ -68,6 +73,21 @@ pub enum TreeNode {
 }
 
 impl TreeNode {
+    /// Serialize back to the same JSON shape `from_json` reads, so a grown
+    /// tree can be persisted to disk and reloaded.
+    pub fn to_json(&self) -> Value {
+        match self {
+            TreeNode::Leaf(ids) => Value::Array(ids.iter().map(|&i| Value::from(i as u64)).collect()),
+            TreeNode::Branch(children) => {
+                let mut map = serde_json::Map::new();
+                for (name, child) in children {
+                    map.insert(name.clone(), child.to_json());
+                }
+                Value::Object(map)
+            }
+        }
+    }
+
     /// Parse a `serde_json::Value` from the Claude-partitioned tree.
     /// A JSON array -> `Leaf`; a JSON object -> `Branch`; recursively.
     pub fn from_json(v: &Value) -> Option<TreeNode> {

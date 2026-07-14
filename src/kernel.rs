@@ -308,8 +308,8 @@ impl Kernel {
 
     /// Full write path for one exchange: classify, apply to the store, and
     /// ingest both turns into the driver index so the session itself becomes
-    /// retrievable memory. This is what makes chat *infinite*: everything
-    /// said flows down the hierarchy instead of falling off the window.
+    /// retrievable memory. Returns the write-backs that changed the store so
+    /// callers can show the user what was remembered.
     pub fn write_back(
         &mut self,
         store: &mut MemoryStore,
@@ -317,16 +317,22 @@ impl Kernel {
         response: &str,
         timestamp: &str,
         now: Timestamp,
-    ) -> usize {
-        let wbs = self.classify_write_back(store, user_msg, response);
-        let changed = Self::apply_write_backs(store, &wbs, now);
+    ) -> Vec<WriteBack> {
+        let mut wbs = self.classify_write_back(store, user_msg, response);
+        Self::apply_write_backs(store, &wbs, now);
+        wbs.retain(|w| w.kind != "EPHEMERAL" && !w.content.is_empty());
         if let Some(driver) = self.drivers.first_mut() {
             driver.ingest_turn("user", user_msg, timestamp);
             if !response.to_uppercase().contains("CONTEXT_NEEDED") {
                 driver.ingest_turn("assistant", response, timestamp);
             }
         }
-        changed
+        wbs
+    }
+
+    /// Borrow the mounted driver, for surfaces that need to inspect or persist it.
+    pub fn driver(&self) -> Option<&dyn MemoryIndexDriver> {
+        self.drivers.first().map(|d| d.as_ref())
     }
 }
 

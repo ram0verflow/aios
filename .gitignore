@@ -23,3 +23,6 @@ __pycache__/
 
 # os
 .DS_Store
+
+# companion state (its memory; personal, never committed)
+/companion/

@@ -127,6 +127,58 @@ impl HierarchicalTopicDriver {
         self.embedder = Some(ollama);
     }
 
+    /// Persist the whole driver state (messages with embeddings, the grown
+    /// tree, cached name embeddings) so a companion session survives restarts.
+    pub fn save(&self, path: &str) -> std::io::Result<()> {
+        let messages: Vec<serde_json::Value> = self.messages.iter().map(|m| {
+            serde_json::json!({
+                "idx": m.idx, "speaker": m.speaker, "text": m.text,
+                "timestamp": m.timestamp, "embedding": m.embedding,
+            })
+        }).collect();
+        let name_embeddings: serde_json::Value = self.name_embeddings.iter()
+            .map(|(k, v)| (k.clone(), serde_json::json!(v)))
+            .collect::<serde_json::Map<_, _>>().into();
+        let data = serde_json::json!({
+            "namespace": self.namespace,
+            "messages": messages,
+            "tree": self.tree.as_ref().map(|t| t.to_json()),
+            "name_embeddings": name_embeddings,
+        });
+        std::fs::write(path, serde_json::to_string(&data)?)
+    }
+
+    /// Reload a saved driver. Call set_embedder afterwards for online ingestion.
+    pub fn load(path: &str) -> std::io::Result<Self> {
+        let data: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+        let ns = data["namespace"].as_str().unwrap_or("/social").to_string();
+        let mut d = HierarchicalTopicDriver::new(&ns);
+        for m in data["messages"].as_array().into_iter().flatten() {
+            d.messages.push(Message {
+                idx: m["idx"].as_u64().unwrap_or(0) as usize,
+                speaker: m["speaker"].as_str().unwrap_or("").to_string(),
+                text: m["text"].as_str().unwrap_or("").to_string(),
+                timestamp: m["timestamp"].as_str().unwrap_or("").to_string(),
+                embedding: m["embedding"].as_array().map(|a| {
+                    a.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect()
+                }),
+            });
+        }
+        d.bm25 = Some(Bm25Index::build(&d.messages));
+        d.tree = data.get("tree").filter(|t| !t.is_null()).and_then(TreeNode::from_json);
+        if let Some(ne) = data["name_embeddings"].as_object() {
+            for (k, v) in ne {
+                if let Some(a) = v.as_array() {
+                    d.name_embeddings.insert(
+                        k.clone(),
+                        a.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect(),
+                    );
+                }
+            }
+        }
+        Ok(d)
+    }
+
     /// O(1) message lookup when idx == vector position (true for online
     /// ingestion and sorted loads); falls back to linear scan otherwise.
     fn msg_by_idx(&self, idx: usize) -> Option<&Message> {
@@ -416,6 +468,10 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
 
     fn ingest_turn(&mut self, speaker: &str, text: &str, timestamp: &str) -> usize {
         self.ingest_turn_impl(speaker, text, timestamp)
+    }
+
+    fn persist(&self, path: &str) -> std::io::Result<()> {
+        self.save(path)
     }
 
     fn route_query(&self, query_text: &str, query_embedding: &[f32]) -> Vec<usize> {

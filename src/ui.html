@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aios</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #10141d; --panel2: #151a26; --line: #1f2634;
+    --ink: #dde3ee; --dim: #7d8799; --faint: #4a5568;
+    --ok: #7ce38b; --warn: #e3b341; --bad: #f47067; --acc: #6cb6ff;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--sans);
+    display: flex; flex-direction: column; font-size: 15px;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 18px; border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 13px; flex: none;
+  }
+  header .logo { font-weight: 700; letter-spacing: 0.08em; }
+  header .logo::before { content: "● "; color: var(--ok); }
+  header .tag {
+    color: var(--dim); background: var(--panel2); border: 1px solid var(--line);
+    padding: 2px 9px; border-radius: 999px; font-size: 11.5px;
+  }
+  header .tag b { color: var(--ink); font-weight: 600; }
+  header .spacer { flex: 1; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+
+  /* chat column */
+  #chatcol { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #msgs { flex: 1; overflow-y: auto; padding: 26px 8%; }
+  .msg { max-width: 62ch; margin-bottom: 18px; line-height: 1.5; }
+  .msg .who {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: 5px;
+  }
+  .msg.user { margin-left: auto; }
+  .msg.user .who { text-align: right; }
+  .msg.user .body {
+    background: var(--panel2); border: 1px solid var(--line);
+    padding: 10px 14px; border-radius: 12px 12px 3px 12px;
+  }
+  .msg.ai .body { padding: 2px 0; }
+  .msg.fault .body { color: var(--warn); font-family: var(--mono); font-size: 13.5px; }
+  .meta {
+    font-family: var(--mono); font-size: 11px; color: var(--faint); margin-top: 6px;
+  }
+  .meta .f { color: var(--warn); }
+
+  #composer {
+    flex: none; display: flex; gap: 10px; padding: 14px 8% 20px;
+    border-top: 1px solid var(--line);
+  }
+  #box {
+    flex: 1; background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; font: inherit; resize: none; height: 48px;
+  }
+  #box:focus { outline: none; border-color: var(--acc); }
+  #send {
+    background: var(--acc); color: #0b0e14; border: 0; border-radius: 10px;
+    padding: 0 22px; font: 600 14px var(--sans); cursor: pointer;
+  }
+  #send:disabled { opacity: 0.4; cursor: wait; }
+
+  /* memory panel */
+  #mem {
+    width: 340px; flex: none; border-left: 1px solid var(--line);
+    background: var(--panel); display: flex; flex-direction: column;
+    font-family: var(--mono); font-size: 12px; min-height: 0;
+  }
+  #mem h2 {
+    font-size: 10.5px; letter-spacing: 0.16em; color: var(--faint);
+    padding: 12px 16px 8px; font-weight: 600;
+  }
+  #gauge { padding: 0 16px 12px; border-bottom: 1px solid var(--line); }
+  #bar { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+  #fill { height: 100%; width: 0%; background: var(--ok); transition: width 0.4s, background 0.4s; }
+  #gauge .row { display: flex; justify-content: space-between; color: var(--dim); margin-top: 6px; }
+
+  #stats { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  #stats div { flex: 1; background: var(--panel2); border-radius: 8px; padding: 8px 4px; text-align: center; }
+  #stats .n { font-size: 17px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  #stats .l { font-size: 9.5px; color: var(--faint); letter-spacing: 0.1em; margin-top: 2px; }
+
+  #log { flex: 1; overflow-y: auto; padding: 10px 16px 20px; }
+  .ev { margin-bottom: 10px; line-height: 1.45; color: var(--dim); }
+  .ev .t { color: var(--faint); }
+  .ev.page .k { color: var(--acc); }
+  .ev.fault .k { color: var(--warn); }
+  .ev.mem .k { color: var(--ok); }
+  .ev.evict .k { color: var(--bad); }
+  .ev .c { color: var(--ink); }
+  .empty { color: var(--faint); padding: 4px 0; }
+
+  @media (max-width: 760px) { #mem { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">AIOS</span>
+  <span class="tag">model <b id="hmodel">…</b></span>
+  <span class="tag">kv <b id="hkv">…</b></span>
+  <span class="spacer"></span>
+  <span class="tag" id="hmem">memory: …</span>
+</header>
+
+<main>
+  <div id="chatcol">
+    <div id="msgs"></div>
+    <div id="composer">
+      <textarea id="box" placeholder="say something. it remembers." rows="1"></textarea>
+      <button id="send">send</button>
+    </div>
+  </div>
+
+  <aside id="mem">
+    <h2>CONTEXT WINDOW</h2>
+    <div id="gauge">
+      <div id="bar"><div id="fill"></div></div>
+      <div class="row"><span id="gtok">0 / 0 tok</span><span id="glvl">OK</span></div>
+    </div>
+    <div id="stats">
+      <div><div class="n" id="sb">0</div><div class="l">TOPICS</div></div>
+      <div><div class="n" id="sd">0</div><div class="l">FACTS</div></div>
+      <div><div class="n" id="sa">0</div><div class="l">ARCHIVE</div></div>
+    </div>
+    <h2>KERNEL LOG</h2>
+    <div id="log"><div class="empty">memory events show up here</div></div>
+  </aside>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function addMsg(who, text, cls) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.innerHTML = `<div class="who">${who}</div><div class="body">${esc(text)}</div>`;
+  $('msgs').appendChild(d);
+  $('msgs').scrollTop = $('msgs').scrollHeight;
+  return d;
+}
+
+let logEmpty = true;
+function logEv(turn, cls, kind, detail) {
+  if (logEmpty) { $('log').innerHTML = ''; logEmpty = false; }
+  const d = document.createElement('div');
+  d.className = 'ev ' + cls;
+  d.innerHTML = `<span class="t">t${turn}</span> <span class="k">${kind}</span> <span class="c">${esc(detail)}</span>`;
+  $('log').appendChild(d);
+  $('log').scrollTop = $('log').scrollHeight;
+}
+
+function setPressure(p) {
+  if (!p) return;
+  const pct = Math.min(100, Math.round(100 * p.used / Math.max(p.budget, 1)));
+  $('fill').style.width = pct + '%';
+  $('fill').style.background = p.level === 'OK' ? 'var(--ok)' : p.level === 'WARNING' ? 'var(--warn)' : 'var(--bad)';
+  $('gtok').textContent = `${p.used} / ${p.budget} tok`;
+  $('glvl').textContent = p.level;
+}
+
+function setStats(s) {
+  if (!s) return;
+  $('sb').textContent = s.branches;
+  $('sd').textContent = s.details;
+  $('sa').textContent = s.archive;
+}
+
+async function refreshStatus() {
+  try {
+    const r = await (await fetch('/api/status')).json();
+    $('hmodel').textContent = r.model;
+    $('hkv').textContent = r.kv ? 'on' : 'off';
+    $('hmem').textContent = `memory: ${r.store.archive + r.store.details} items, ${r.store.versions} versions`;
+    setPressure(r.pressure);
+    setStats(r.store);
+  } catch (e) { /* server busy answering; try again later */ }
+}
+
+async function send() {
+  const text = $('box').value.trim();
+  if (!text) return;
+  $('box').value = '';
+  $('send').disabled = true;
+  addMsg('you', text, 'user');
+  const thinking = addMsg('aios', '…', 'ai');
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: text}),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+
+    const faulted = j.faulted && !j.retried;
+    thinking.className = 'msg ai' + (faulted ? ' fault' : '');
+    thinking.querySelector('.body').textContent = j.reply;
+
+    let meta = `paged in ${j.loaded} memories from ${j.namespace || '/social'}`;
+    if (j.faulted) meta += j.retried ? ` · <span class="f">fault → re-paged, recovered</span>`
+                                     : ` · <span class="f">fault: ${esc(j.fault_topic)}</span>`;
+    const m = document.createElement('div');
+    m.className = 'meta';
+    m.innerHTML = meta;
+    thinking.appendChild(m);
+
+    logEv(j.turn, 'page', 'page-in', `${j.loaded} memories (${j.namespace || '/social'})`);
+    if (j.faulted) logEv(j.turn, 'fault', 'fault', j.fault_topic + (j.retried ? ' (recovered)' : ''));
+    for (const w of j.remembered || []) {
+      logEv(j.turn, 'mem', 'remember', `${w.content}${w.branch ? ' [' + w.branch + ']' : ''}`);
+    }
+    if (j.evicted > 0) logEv(j.turn, 'evict', 'evict', `${j.evicted} messages demoted to archive`);
+    setPressure(j.pressure);
+  } catch (e) {
+    thinking.className = 'msg ai fault';
+    thinking.querySelector('.body').textContent = 'error: ' + e.message;
+  }
+  $('send').disabled = false;
+  $('box').focus();
+  refreshStatus();
+}
+
+$('send').onclick = send;
+$('box').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+refreshStatus();
+</script>
+</body>
+</html>
