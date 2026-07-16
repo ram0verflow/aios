@@ -1,0 +1,10 @@
+
+========== BABILONG (data/babilong_64k.jsonl) ==========
+model aios-ft-r2-full | samples 100 | accuracy 37/100 (37.0%)
+  qa1: 9/20
+  qa2: 0/20
+  qa3: 0/20
+  qa4: 13/20
+  qa5: 15/20
+latency p50 14.1s p95 35.2s
+=========================================

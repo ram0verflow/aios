@@ -137,6 +137,18 @@ is that blind expansion is the wrong shape for multi hop here; the kernel
 already has a targeted mechanism (the model faults, the kernel re-pages on
 the fault topic) and that is the direction worth pursuing.
 
+I tested whether the fine tuned model would trigger that mechanism on the
+chained tasks. It does not: zero faults fired, because the loaded chunks
+look topical even when the reasoning chain through them is incomplete. The
+tune teaches "fault when the topic is missing," not "fault when a chain is
+missing a link," and those are different skills. Teaching the second one
+needs training examples of exactly that shape, which are easy to generate,
+and is the obvious next round if I train again. The tuned model also scored
+ten points below base on this benchmark overall; it is better on
+conversational memory and worse on book text, so different memory volumes
+probably want different answer models, which the driver design happens to
+support.
+
 Retrieval cost, measured: 33 to 57 ms at the median against 7 to 14 seconds
 of generation. The memory side is about half a percent of a query.
 
