@@ -115,6 +115,8 @@ fn main() {
             "dense" => driver.route_cfg.use_dense = false,
             "cap" => driver.route_cfg.max_load = 1000,
             "resolver" => driver.route_cfg.temporal_notes = false,
+            "multihop" => driver.route_cfg.multi_hop = false,
+            "withhop" => driver.route_cfg.multi_hop = true,
             other => eprintln!("unknown ablation: {other}"),
         }
     }

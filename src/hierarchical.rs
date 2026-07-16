@@ -119,11 +119,24 @@ pub struct RouteConfig {
     pub use_dense: bool,
     pub max_load: usize,
     pub temporal_notes: bool,
+    /// Second retrieval round seeded by entities found in the first round.
+    /// Chained facts ("where is the milk" needs who took it, then where they
+    /// went) are unreachable in one round: the answer chunk shares no words
+    /// with the question. Hop two searches on the names the first round
+    /// surfaced. Index work only, no model calls.
+    pub multi_hop: bool,
 }
 
 impl Default for RouteConfig {
     fn default() -> Self {
-        RouteConfig { use_tree: true, use_bm25: true, use_dense: true, max_load: 30, temporal_notes: true }
+        RouteConfig {
+            use_tree: true,
+            use_bm25: true,
+            use_dense: true,
+            max_load: 30,
+            temporal_notes: true,
+            multi_hop: false,
+        }
     }
 }
 
@@ -553,8 +566,8 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
 
         // Rerank: normalized BM25 + dense cosine + small bonus for top leaves.
         let mut scored: Vec<(f32, usize)> = candidates
-            .into_iter()
-            .map(|idx| {
+            .iter()
+            .map(|&idx| {
                 let mut s = bm25_score.get(&idx).copied().unwrap_or(0.0);
                 if let Some(rank) = leaf_rank.get(&idx) {
                     s += 0.3 / (1.0 + *rank as f32); // leaf 0 → +0.30, leaf 5 → +0.05
@@ -571,6 +584,76 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
             .collect();
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(max_load);
+
+        // Hop two: mine the first round's results for salient terms the query
+        // did not contain (rare, informative tokens, in practice names and
+        // places), then run BM25 again on those. Hop-two hits join the pool at
+        // a discount so they cannot displace direct hits, then everything is
+        // reranked together.
+        if self.route_cfg.multi_hop && self.route_cfg.use_bm25 {
+            if let Some(bm25) = &self.bm25 {
+                let query_terms: std::collections::HashSet<String> =
+                    tokenize(query_text).into_iter().collect();
+                let mut term_tf: HashMap<String, f32> = HashMap::new();
+                for (_, idx) in scored.iter().take(10) {
+                    if let Some(m) = self.msg_by_idx(*idx) {
+                        for t in tokenize(&m.text) {
+                            if !query_terms.contains(&t) && t.len() > 2 {
+                                *term_tf.entry(t).or_insert(0.0) += 1.0;
+                            }
+                        }
+                    }
+                }
+                // A useful expansion term must lead somewhere NEW: at least
+                // one of its occurrences has to be outside what hop one
+                // already retrieved. A term seen only inside the current
+                // results is a dead end by construction. Among the leads,
+                // prefer frequent-in-results and rare-in-corpus.
+                let n_docs = self.messages.len().max(1) as f32;
+                let mut expansion: Vec<(String, f32)> = term_tf
+                    .into_iter()
+                    .filter_map(|(t, tf)| {
+                        let posts = bm25.postings.get(&t)?;
+                        let leads_out = posts.iter().any(|(pos, _)| {
+                            self.messages.get(*pos).map(|m| !candidates.contains(&m.idx)).unwrap_or(false)
+                        });
+                        if !leads_out {
+                            return None;
+                        }
+                        let df = posts.len() as f32;
+                        Some((t, tf * (n_docs / df).ln().max(0.1)))
+                    })
+                    .collect();
+                expansion.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                let hop_query: String = expansion
+                    .iter()
+                    .take(6)
+                    .map(|(t, _)| t.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
+                if !hop_query.is_empty() {
+                    let hits = bm25.top_k(&hop_query, 15);
+                    let max_s = hits.first().map(|h| h.1).unwrap_or(1.0).max(1e-6);
+                    let mut added = 0;
+                    for (pos, s) in hits {
+                        for p in pos.saturating_sub(1)..=(pos + 1).min(self.messages.len() - 1) {
+                            let idx = self.messages[p].idx;
+                            if candidates.insert(idx) {
+                                let w = if p == pos { s / max_s } else { 0.25 * s / max_s };
+                                scored.push((0.5 * w, idx));
+                                added += 1;
+                            }
+                        }
+                    }
+                    if added > 0 {
+                        path.push_str(&format!(" | hop2[{added}: {}]", hop_query));
+                        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                        scored.truncate(max_load);
+                    }
+                }
+            }
+        }
 
         // Chronological presentation.
         let mut ids: Vec<usize> = scored.into_iter().map(|(_, idx)| idx).collect();
@@ -888,6 +971,34 @@ mod tests {
         let (ctx, _) = d.load_messages(&[0], 1000);
         assert!(ctx.contains("[TIME NOTES"), "notes missing:\n{ctx}");
         assert!(ctx.contains("the week before 27 June 2023"), "resolution missing:\n{ctx}");
+    }
+
+    #[test]
+    fn multi_hop_follows_the_entity_chain() {
+        // "Where is the milk?" needs hop 1 (milk -> John took it) then hop 2
+        // (John -> kitchen). Message 3 shares no words with the query and is
+        // not adjacent to message 0, so single-hop retrieval cannot reach it.
+        let mut d = HierarchicalTopicDriver::new("/docs");
+        let texts = [
+            "John took the milk from the fridge",
+            "Mary journeyed to the garden with her book",
+            "Sandra grabbed the football and left",
+            "Afterwards John travelled onward to the kitchen",
+            "The weather was cloudy all afternoon",
+        ];
+        let msgs: Vec<Message> = texts.iter().enumerate().map(|(i, t)| Message {
+            idx: i, speaker: "text".into(), text: t.to_string(),
+            timestamp: String::new(), embedding: None,
+        }).collect();
+        d.ingest_messages(&msgs);
+
+        d.route_cfg.multi_hop = false;
+        let single = d.route_query("where is the milk", &[]);
+        d.route_cfg.multi_hop = true;
+        let multi = d.route_query("where is the milk", &[]);
+
+        assert!(single.contains(&0), "hop 1 must find the milk: {single:?}");
+        assert!(multi.contains(&3), "hop 2 must follow John to the kitchen: {multi:?}");
     }
 
     #[test]

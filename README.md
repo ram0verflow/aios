@@ -120,10 +120,22 @@ answers wrongly with confidence, and generation time doubles. The tree adds
 nothing on this benchmark; its case is browsing and scale, not QA, and I keep
 it because the online ingestion path builds it for free.
 
-Same stack, different answer models, same questions: mistral 7b scores 0.432,
-nearly identical to llama's 0.449, so the architecture is not tuned to one
-model family. phi3 mini (3.8B) drops to 0.215; below some capability floor
-the model cannot use what gets paged in.
+Same stack, different answer models, same questions, graded by claude haiku:
+llama 3.1 8b 48.0%, mistral 7b 45.4%, phi3 mini 50.0%. Three model families
+land in the same band on the identical stack. ROUGE had suggested phi3 was
+far worse (0.215 against llama's 0.449); the judge shows it is just verbose,
+not wrong. Refusal discipline is where models differ wildly: llama refuses
+25.5% of unanswerable questions, mistral 28.9%, phi3 almost never (2.2%),
+which is the behavior the fine tune exists to install.
+
+I also tried a second retrieval hop: mine the first round's results for
+names the query did not contain, search again on those, merge at a discount.
+It moved the chained fact tasks a little (qa2 went 0/20 to 4/20) but cost
+more than it paid: qa1 dropped 13/20 to 8/20 from the added noise and
+latency doubled. It ships default off behind a flag. The honest conclusion
+is that blind expansion is the wrong shape for multi hop here; the kernel
+already has a targeted mechanism (the model faults, the kernel re-pages on
+the fault topic) and that is the direction worth pursuing.
 
 Retrieval cost, measured: 33 to 57 ms at the median against 7 to 14 seconds
 of generation. The memory side is about half a percent of a query.

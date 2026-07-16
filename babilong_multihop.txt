@@ -1,0 +1,10 @@
+
+========== BABILONG (data/babilong_64k.jsonl) ==========
+model llama3.1:8b | samples 100 | accuracy 46/100 (46.0%)
+  qa1: 8/20
+  qa2: 4/20
+  qa3: 1/20
+  qa4: 14/20
+  qa5: 19/20
+latency p50 19.8s p95 41.8s
+=========================================
