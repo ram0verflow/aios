@@ -88,8 +88,27 @@ pub fn default_region() -> String {
         .unwrap_or_else(|| "us-east-1".to_string())
 }
 
-/// Claude inference profiles visible to this account in this region.
+static PROFILE_CACHE: Mutex<Option<(u64, Vec<String>)>> = Mutex::new(None);
+
+/// Claude inference profiles visible to this account in this region,
+/// cached for two minutes so the model switcher opens without a CLI call.
 pub fn list_claude_profiles(region: &str) -> Vec<String> {
+    {
+        let cache = PROFILE_CACHE.lock().unwrap();
+        if let Some((at, profiles)) = cache.as_ref() {
+            if now_secs() < at + 120 {
+                return profiles.clone();
+            }
+        }
+    }
+    let profiles = list_claude_profiles_uncached(region);
+    if !profiles.is_empty() {
+        *PROFILE_CACHE.lock().unwrap() = Some((now_secs(), profiles.clone()));
+    }
+    profiles
+}
+
+fn list_claude_profiles_uncached(region: &str) -> Vec<String> {
     let out = Command::new("aws")
         .args(["bedrock", "list-inference-profiles", "--region", region, "--output", "json"])
         .output();

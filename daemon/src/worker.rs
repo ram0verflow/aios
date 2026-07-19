@@ -409,11 +409,14 @@ impl Worker {
         let generation_ms = t1.elapsed().as_secs_f64() * 1000.0;
         let reply = reply.trim().to_string();
         let was_cancelled = cancel.load(Ordering::Relaxed);
+        // A provider error is not a conversation. Show it, journal it, but
+        // never let it form memory or advance the session window.
+        let errored = reply.starts_with("[ERROR:");
 
         // Memory formation. Classification is always local (kernel-side
         // model); provenance points at the journal entry of the user turn.
         let mut writes: Vec<Value> = Vec::new();
-        if mem_writes_allowed && !was_cancelled && !reply.is_empty() {
+        if mem_writes_allowed && !was_cancelled && !errored && !reply.is_empty() {
             let source = format!("journal:{user_entry}");
             let wbs = self.classify(&s, provider.as_ref(), text, &reply);
             let mut store = self.shared.store.lock().unwrap();
@@ -437,7 +440,7 @@ impl Worker {
         // Session RAM bookkeeping. The window always advances (otherwise the
         // conversation loses its own thread); demotions only reach the store
         // when writes are allowed.
-        if !was_cancelled && !reply.is_empty() {
+        if !was_cancelled && !errored && !reply.is_empty() {
             self.window.load_message("user", text, false);
             self.window.load_message("assistant", &reply, false);
             if self.window.pressure_level() != "OK" {
@@ -482,6 +485,7 @@ impl Worker {
             "writes": writes,
             "actions": actions,
             "cancelled": was_cancelled,
+            "errored": errored,
             "privacy_mode": s.privacy_mode,
         });
         let assistant_entry = {
