@@ -42,11 +42,18 @@ pub struct AiosDirs {
 }
 
 impl AiosDirs {
-    /// `~/.aios/`, created on first run. Key file permissions are the
-    /// caller's job (we only ever read keys).
+    /// `~/.aios/` (or `$AIOS_HOME`), created on first run. The override
+    /// exists so stress runs and tests get their own state instead of
+    /// writing into the real memory. Key file permissions are the caller's
+    /// job (we only ever read keys).
     pub fn create() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        let root = PathBuf::from(home).join(".aios");
+        let root = match std::env::var("AIOS_HOME") {
+            Ok(p) if !p.is_empty() => PathBuf::from(p),
+            _ => {
+                let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                PathBuf::from(home).join(".aios")
+            }
+        };
         std::fs::create_dir_all(root.join("journal")).ok();
         AiosDirs { root }
     }

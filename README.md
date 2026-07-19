@@ -219,6 +219,28 @@ fixed window, then asks for them back. 130 turns over 104 minutes, the
 window never went over budget, 9 of 10 facts came back (the tenth was a
 grader casing bug). `python3 endurance.py <port>` against a running server.
 
+The daemon has its own compaction stress harness, and the point of it is
+that eviction should be safe. It forces the session window down to 500
+tokens, plants ten facts, buries them under thirty distractor turns so
+every planted fact gets demoted out of the window, then asks for them all
+back:
+
+```
+AIOS_HOME=/tmp/aios-stress ./target/release/aios-daemon --port 4311
+python3 stress_daemon.py 4311
+```
+
+Latest run, with a hosted answer model (Nova 2 Lite) over the local memory
+stack: the window peaked at 499 of 500 tokens and never went over, 70
+messages were demoted to the archive, and recall came back 10 of 10 with
+retrieval between 30 and 45 ms and zero page faults. Locker combinations,
+garage levels, version numbers, times, all exact. The store's topic file
+barely grew during the run; what answered was the conversation index that
+every turn feeds, which is the design working as intended: the window
+forgets, the memory does not.
+
+![recall after total eviction: 10 of 10, ~39ms retrieval](shots/stress-recall.png)
+
 Notes from living with it: write back runs one extra model call per turn,
 so replies take a few seconds longer than plain chat. The 8B model
 sometimes decorates recalled facts; in one test it added a year to a date I

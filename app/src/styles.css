@@ -538,8 +538,13 @@ button {
   height: 100%;
   display: flex;
   flex-direction: column;
-  max-width: 920px;
+  max-width: min(1040px, 96vw);
   margin: 0 auto;
+  color-scheme: dark;
+}
+
+.mkt {
+  color-scheme: light;
 }
 
 .app-head {
@@ -916,6 +921,7 @@ main {
 
 .row.user .bubble {
   background: var(--user);
+  border: 1px solid #4a3c2c;
   border-bottom-right-radius: 5px;
 }
 

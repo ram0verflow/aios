@@ -403,7 +403,16 @@ impl Worker {
             reply = "I tried to reach for outside help there and couldn't. Ask me again, or rephrase?".into();
             self.send(events, json!({"t": "tok", "v": reply.as_str()}));
         } else if faulted && !retried && actions.is_empty() {
-            // Nothing better came back; show the fault text itself.
+            // The re-page found nothing either. Say so in the companion's
+            // voice; raw protocol text never reaches the timeline.
+            if detect_page_fault(&reply).is_some() {
+                let topic = fault_topic.trim_start_matches("/social/").replace('_', " ");
+                reply = if topic.is_empty() || topic == "unknown" {
+                    "That isn't in my memory yet. Tell me and I'll remember it.".to_string()
+                } else {
+                    format!("I don't have anything about {topic} in memory yet. Tell me and I'll remember it.")
+                };
+            }
             self.send(events, json!({"t": "tok", "v": reply.as_str()}));
         }
         let generation_ms = t1.elapsed().as_secs_f64() * 1000.0;
