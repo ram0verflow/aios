@@ -232,8 +232,19 @@ python3 stress_daemon.py 4311
 ```
 
 The harness grades three claims separately, because they are different
-claims. One run each, n of 10, hosted answer model (Nova 2 Lite) over the
-local memory stack:
+claims. One run each at n of 10, hosted answer model (Nova 2 Lite) over
+the local memory stack, so treat these as a smoke test rather than stable
+estimates; the 2 of 2 in particular is one run away from being luck. The
+LoCoMo numbers above are the measured ones.
+
+Never-said probes: 2 of 2 clean, and this is the result I care most
+about. Asked for a pool locker combination when only a gym one exists,
+and for a wedding date never mentioned, the model page faulted both
+times, the re-page found nothing, and the answer was an honest "I don't
+have that" rather than the gym combination with confidence. A system that
+recalls perfectly but also confabulates under pressure is worse than
+useless; the pool question exists because it shares a frame with a real
+stored fact and is designed to tempt exactly that.
 
 Retrieval survives window churn: 10 of 10, with zero stale answers. The
 window peaked at 499 of 500 and never went over, 83 messages were demoted
@@ -245,16 +256,18 @@ attribution: in the daemon's flow the store never enters the prompt
 every turn feeds. The store's runtime jobs are identity, provenance, the
 archive, and the browser.
 
-Never-said probes: 2 of 2 clean. Asked for a pool locker combination when
-only a gym one exists, and for a wedding date never mentioned, the model
-page faulted both times, the re-page found nothing, and the answer was an
-honest "I don't have that" rather than the gym combination with confidence.
-That is the fault path doing its actual job.
-
 Write-back capture, measured on its own: 7 of 10 planted facts were
-present in the store afterward. Capture is the weakest of the three
-numbers and depends on the classifier model; it is also not what serves
-recall today, which is worth knowing before reading it as a failure.
+present in the store afterward, and the misses cluster by phrasing rather
+than falling randomly. Possessive declaratives ("my locker combination
+is...") reliably land, often filed into identity; what got dropped was an
+event involving another person (lending a book), an itinerary detail said
+in passing, and a correction phrased as "we lowered X to 90". The
+classifier keeps what sounds like a profile statement and drops events
+and corrections, which is actionable in a way "capture is weak" is not.
+The harness tags every planted fact by form and prints the per-form hits,
+so future runs show whether that pattern holds. Capture is also not what
+serves recall today, which is worth knowing before reading 7 of 10 as a
+failure.
 
 ![recall after total eviction, exact answers at ~40ms](shots/stress-recall.png)
 

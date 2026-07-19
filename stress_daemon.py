@@ -30,18 +30,20 @@ import urllib.request
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 4310
 BASE = f"http://127.0.0.1:{PORT}"
 
-# (planted sentence, recall question, expected needle, forbidden stale needle)
+# (planted sentence, recall question, expected needle, forbidden stale
+#  needle, grammatical form). The form tag exists to see whether capture
+#  misses cluster by phrasing rather than randomly.
 FACTS = [
-    ("My dentist appointment is on October 14th.", "when is my dentist appointment?", "october 21", "october 14"),
-    ("My cat is called Biscuit.", "what is my cat called?", "biscuit", None),
-    ("I parked the car on level 4B of the airport garage.", "where did I park at the airport?", "4b", None),
-    ("My wifi password hint is: the street I grew up on.", "what is my wifi password hint?", "street", None),
-    ("I lent Rohan my copy of SICP.", "who did I lend SICP to?", "rohan", None),
-    ("The production database runs Postgres 16.", "which Postgres version does production run?", "16", None),
-    ("My locker combination at the gym is 7-31-19.", "what is my gym locker combination?", "7-31-19", None),
-    ("Mum's birthday dinner is booked at Trattoria Nonna.", "where is mum's birthday dinner booked?", "nonna", None),
-    ("My flight lands in Lisbon at 9:40 in the morning.", "what time does my flight land in Lisbon?", "9:40", None),
-    ("The API rate limit we agreed on is 120 requests per minute.", "what API rate limit did we agree on?", "90", "120"),
+    ("My dentist appointment is on October 14th.", "when is my dentist appointment?", "october 21", "october 14", "possessive+update"),
+    ("My cat is called Biscuit.", "what is my cat called?", "biscuit", None, "possessive"),
+    ("I parked the car on level 4B of the airport garage.", "where did I park at the airport?", "4b", None, "event"),
+    ("My wifi password hint is: the street I grew up on.", "what is my wifi password hint?", "street", None, "possessive"),
+    ("I lent Rohan my copy of SICP.", "who did I lend SICP to?", "rohan", None, "event+third-party"),
+    ("The production database runs Postgres 16.", "which Postgres version does production run?", "16", None, "third-person fact"),
+    ("My locker combination at the gym is 7-31-19.", "what is my gym locker combination?", "7-31-19", None, "possessive"),
+    ("Mum's birthday dinner is booked at Trattoria Nonna.", "where is mum's birthday dinner booked?", "nonna", None, "third-person fact"),
+    ("My flight lands in Lisbon at 9:40 in the morning.", "what time does my flight land in Lisbon?", "9:40", None, "itinerary aside"),
+    ("The API rate limit we agreed on is 120 requests per minute.", "what API rate limit did we agree on?", "90", "120", "agreement+update"),
 ]
 
 # Injected mid-distractor: the versioning/dedup path has to handle these.
@@ -147,7 +149,7 @@ def main():
     print("window budget forced to 500 tokens\n")
 
     print(f"— planting {len(FACTS)} facts")
-    for i, (fact, _, _, _) in enumerate(FACTS):
+    for i, (fact, _, _, _, _) in enumerate(FACTS):
         reply, _ = turn(fact)
         print(f"  [{i+1:2}] {fact[:52]:52} -> {reply[:44]!r}")
 
@@ -167,7 +169,7 @@ def main():
 
     print("\n— recall (updated facts must answer with the NEW value)")
     hits, stale, results = 0, 0, []
-    for fact, question, needle, forbidden in FACTS:
+    for fact, question, needle, forbidden, form in FACTS:
         reply, done = turn(question)
         insp = (done or {}).get("inspector", {})
         low = reply.lower()
@@ -176,6 +178,7 @@ def main():
         hits += ok
         stale += went_stale
         results.append({"fact": fact, "question": question, "needle": needle,
+                        "form": form,
                         "reply": reply, "ok": ok, "stale": went_stale,
                         "loaded": insp.get("loaded"),
                         "retrieval_ms": insp.get("retrieval_ms"),
@@ -196,9 +199,15 @@ def main():
         mark = "PASS" if ok else "LEAK"
         print(f"  [{mark:5}] {question[:42]:42} -> {reply[:58]!r}")
 
-    # Write-back capture: which planted facts exist in the STORE at all.
+    # Write-back capture: which planted facts exist in the STORE at all,
+    # and whether misses cluster by grammatical form.
     stext, browse = store_text()
-    captured = sum(1 for _, _, needle, _ in FACTS if needle.lower() in stext)
+    captured = 0
+    print("\n— write-back capture by form")
+    for _, _, needle, _, form in FACTS:
+        got = needle.lower() in stext
+        captured += got
+        print(f"  [{'HIT ' if got else 'MISS'}] {form:20} {needle}")
     n_details = sum(len(b["details"]) for b in browse["branches"])
 
     used, budget, evictions, level = pressure()
