@@ -130,13 +130,16 @@ def pressure():
 
 
 def store_text():
+    """Returns (identity text, branch text, browse) so capture can tell a
+    properly filed fact from one that only survives in the identity blob."""
     b = get("/v1/memory/browse")
-    parts = [b["identity"]["current"]]
+    identity = b["identity"]["current"].lower()
+    parts = []
     for br in b["branches"]:
         parts.append(br["name"])
         parts.append(br["summary"]["current"])
         parts.extend(d["current"] for d in br["details"])
-    return " ".join(parts).lower(), b
+    return identity, " ".join(parts).lower(), b
 
 
 def main():
@@ -200,14 +203,22 @@ def main():
         print(f"  [{mark:5}] {question[:42]:42} -> {reply[:58]!r}")
 
     # Write-back capture: which planted facts exist in the STORE at all,
-    # and whether misses cluster by grammatical form.
-    stext, browse = store_text()
-    captured = 0
-    print("\n— write-back capture by form")
+    # whether they were filed properly (a branch) or only survive in the
+    # identity blob, and whether misses cluster by grammatical form.
+    identity, branches_text, browse = store_text()
+    captured = id_only = 0
+    print("\n— write-back capture by form (branch-filed is the real number)")
     for _, _, needle, _, form in FACTS:
-        got = needle.lower() in stext
-        captured += got
-        print(f"  [{'HIT ' if got else 'MISS'}] {form:20} {needle}")
+        n = needle.lower()
+        if n in branches_text:
+            captured += 1
+            mark = "HIT "
+        elif n in identity:
+            id_only += 1
+            mark = "IDNT"
+        else:
+            mark = "MISS"
+        print(f"  [{mark}] {form:20} {needle}")
     n_details = sum(len(b["details"]) for b in browse["branches"])
 
     used, budget, evictions, level = pressure()
@@ -216,7 +227,8 @@ def main():
     print(f"\n=== retrieval under churn: {hits}/{len(FACTS)} "
           f"({stale} answered stale) "
           f"| probes clean: {probe_ok}/{len(PROBES)} "
-          f"| store capture: {captured}/{len(FACTS)} needles present "
+          f"| store capture: {captured}/{len(FACTS)} branch-filed "
+          f"+ {id_only} identity-only "
           f"({len(browse['branches'])} topics, {n_details} details) "
           f"| window peak {max_used}/{budget}, {evictions} demotions "
           f"| {n_turns} turns in {elapsed/60:.1f} min ===")
@@ -227,7 +239,8 @@ def main():
     with open("/tmp/aios_stress_report.json", "w") as f:
         json.dump({"recall": hits, "stale": stale, "total": len(FACTS),
                    "probes_ok": probe_ok, "probes": probe_results,
-                   "store_capture": captured, "store_details": n_details,
+                   "store_capture": captured, "identity_only": id_only,
+                   "store_details": n_details,
                    "max_window_used": max_used, "budget": budget,
                    "evictions": evictions, "elapsed_s": elapsed,
                    "results": results}, f, indent=2)

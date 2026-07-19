@@ -270,6 +270,10 @@ Remember only NEW facts the User stated about themselves, their life, their
 decisions, or their work. Greetings, questions, chit-chat, and things the
 Assistant said are EPHEMERAL. Facts already covered by an existing branch
 are EPHEMERAL unless they changed.
+IDENTITY_UPDATE is only for who the user is: name, role, lasting traits.
+Appointments, possessions, times, numbers, and events belong in branches.
+Corrections and things the user did (lent, booked, moved) are worth
+remembering too.
 Output ONLY a JSON array. If nothing new: []";
 
 #[derive(Debug, Clone)]
@@ -333,6 +337,14 @@ impl Kernel {
     /// under two labels in one batch, and re-remember loaded context on later
     /// turns. A fact whose content already lives in the target branch (or in
     /// the identity) is a no-op, not a thirteenth copy.
+    ///
+    /// Two more disciplines, both measured needs, not speculation:
+    /// classifiers use IDENTITY_UPDATE as a catch-all, so value-bearing
+    /// facts (two or more digits) reroute to a branch detail where they get
+    /// versioning and provenance instead of a string merge; and a detail
+    /// that narrowly restates the branch summary supersedes it, so a
+    /// summary can't keep advertising the dentist's old date after the
+    /// details learned the new one.
     pub fn apply_write_backs_from(store: &mut MemoryStore, wbs: &[WriteBack], source: &str, now: Timestamp) -> usize {
         let norm = |s: &str| s.to_lowercase().trim().trim_end_matches(['.', '!']).to_string();
         let mut seen: Vec<String> = Vec::new();
@@ -346,9 +358,12 @@ impl Kernel {
                 continue;
             }
             seen.push(key);
-            match wb.kind.as_str() {
+            let is_factual = wb.content.chars().filter(|c| c.is_ascii_digit()).count() >= 2;
+            let kind = if wb.kind == "IDENTITY_UPDATE" && is_factual { "BRANCH_UPDATE" } else { wb.kind.as_str() };
+            match kind {
                 "IDENTITY_UPDATE" => {
-                    if norm(store.get_identity()).contains(&norm(&wb.content)) {
+                    let id_now = norm(store.get_identity());
+                    if id_now.contains(&norm(&wb.content)) || token_overlap_pct(&wb.content, store.get_identity()) >= 80 {
                         continue;
                     }
                     let merged = format!("{} {}", store.get_identity(), wb.content).trim().to_string();
@@ -388,8 +403,19 @@ impl Kernel {
                     if duplicate {
                         continue;
                     }
-                    store.add_detail(name, &format!("[{}] {}", wb.kind, wb.content), source, now);
+                    store.add_detail(name, &format!("[{kind}] {}", wb.content), source, now);
                     changed += 1;
+                    // Supersede a narrow summary this detail restates. Broad
+                    // topical summaries (low overlap) are left alone.
+                    if let Some(b) = store.get_branch_mut(name) {
+                        let summary = b.summary.current().to_string();
+                        if !summary.is_empty()
+                            && norm(&summary) != norm(&wb.content)
+                            && token_overlap_pct(&summary, &wb.content) >= 60
+                        {
+                            b.update_summary(&wb.content, source, now);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -431,6 +457,27 @@ impl Kernel {
     pub fn driver_mut(&mut self) -> Option<&mut Box<dyn MemoryIndexDriver>> {
         self.drivers.first_mut()
     }
+}
+
+/// What share of `a`'s informative tokens (lowercase, alphanumeric, longer
+/// than three chars) also appear in `b`. 0 when `a` has none.
+fn token_overlap_pct(a: &str, b: &str) -> usize {
+    let tokens = |s: &str| -> std::collections::HashSet<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| t.len() > 3)
+            // Classifier voice, not information: "the user's cat" and "my
+            // cat" must compare equal.
+            .filter(|t| !matches!(*t, "user" | "users" | "they" | "their" | "them"))
+            .map(String::from)
+            .collect()
+    };
+    let ta = tokens(a);
+    if ta.is_empty() {
+        return 0;
+    }
+    let tb = tokens(b);
+    ta.intersection(&tb).count() * 100 / ta.len()
 }
 
 /// Extract the fault topic from a `CONTEXT_NEEDED: <topic>` signal, or detect
@@ -511,6 +558,59 @@ mod tests {
         let id = vec![WriteBack { kind: "IDENTITY_UPDATE".into(), content: "name: abhi".into(), branch: String::new() }];
         assert_eq!(Kernel::apply_write_backs(&mut store, &id, 4.0), 0);
         assert_eq!(store.get_identity(), "Name: Abhi");
+    }
+
+    #[test]
+    fn narrow_summary_superseded_by_correcting_detail() {
+        let mut store = MemoryStore::new();
+        store.create_branch("dentist", "Dentist appointment on October 14th", "wb", 1.0);
+        let wbs = vec![WriteBack {
+            kind: "BRANCH_UPDATE".into(),
+            content: "dentist appointment moved to October 21st".into(),
+            branch: "dentist".into(),
+        }];
+        Kernel::apply_write_backs(&mut store, &wbs, 2.0);
+        let b = store.get_branch("dentist").unwrap();
+        // The summary revised (copy-on-write, old version kept)...
+        assert!(b.summary.current().contains("21st"), "summary: {}", b.summary.current());
+        assert_eq!(b.summary.version_count(), 2);
+        // ...and the detail landed too.
+        assert!(b.details.iter().any(|d| d.current().contains("21st")));
+
+        // A broad topical summary is NOT clobbered by one narrow detail.
+        store.create_branch("aios", "A memory kernel for LLMs, written in Rust, defense in August", "wb", 3.0);
+        let wbs = vec![WriteBack {
+            kind: "DECISION".into(),
+            content: "defense moved to September 1st".into(),
+            branch: "aios".into(),
+        }];
+        Kernel::apply_write_backs(&mut store, &wbs, 4.0);
+        assert!(store.get_branch("aios").unwrap().summary.current().contains("memory kernel"));
+    }
+
+    #[test]
+    fn identity_rejects_value_facts_and_near_duplicates() {
+        let mut store = MemoryStore::new();
+        store.set_identity("Abhi, building a memory kernel", "user", 1.0);
+        // A value-bearing "identity" fact reroutes to a branch detail.
+        let wbs = vec![WriteBack {
+            kind: "IDENTITY_UPDATE".into(),
+            content: "My gym locker combination is 7-31-19".into(),
+            branch: String::new(),
+        }];
+        Kernel::apply_write_backs(&mut store, &wbs, 2.0);
+        assert!(!store.get_identity().contains("7-31-19"));
+        assert!(store.get_branch("general").unwrap().details[0].current().contains("7-31-19"));
+        // A rephrased near-duplicate does not re-append forever.
+        store.set_identity("My cat is called Biscuit", "wb", 3.0);
+        let id_before = store.get_identity().to_string();
+        let wbs = vec![WriteBack {
+            kind: "IDENTITY_UPDATE".into(),
+            content: "the user's cat is called Biscuit".into(),
+            branch: String::new(),
+        }];
+        Kernel::apply_write_backs(&mut store, &wbs, 4.0);
+        assert_eq!(store.get_identity(), id_before);
     }
 
     #[test]

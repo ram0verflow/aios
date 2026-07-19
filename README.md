@@ -232,42 +232,54 @@ python3 stress_daemon.py 4311
 ```
 
 The harness grades three claims separately, because they are different
-claims. One run each at n of 10, hosted answer model (Nova 2 Lite) over
-the local memory stack, so treat these as a smoke test rather than stable
-estimates; the 2 of 2 in particular is one run away from being luck. The
-LoCoMo numbers above are the measured ones.
+claims. Two runs at n of 10 so far, hosted answer model (Nova 2 Lite)
+over the local memory stack. The first run scored clean across the board;
+the second disagreed with it in both directions, which is exactly why
+these stay labeled a smoke test and not a benchmark. The LoCoMo numbers
+above are the measured ones.
 
-Never-said probes: 2 of 2 clean, and this is the result I care most
-about. Asked for a pool locker combination when only a gym one exists,
-and for a wedding date never mentioned, the model page faulted both
-times, the re-page found nothing, and the answer was an honest "I don't
-have that" rather than the gym combination with confidence. A system that
-recalls perfectly but also confabulates under pressure is worse than
-useless; the pool question exists because it shares a frame with a real
-stored fact and is designed to tempt exactly that.
+Never-said probes: 3 of 4 across the two runs, and this is the result I
+care most about. Asked for a pool locker combination when only a gym one
+exists, and for a wedding date never mentioned, run one page faulted both
+times and answered an honest "I don't have that". Run two answered the
+pool question with the gym combination, which is precisely the
+confabulation the probe exists to catch: the question shares a frame with
+a real stored fact and is designed to tempt it. One leak in four probes
+is the honest number, and it is the argument for the fault fine-tune in
+the answer model rather than a solved problem.
 
-Retrieval survives window churn: 10 of 10, with zero stale answers. The
-window peaked at 499 of 500 and never went over, 83 messages were demoted
-to the archive, and every fact came back exact at 32 to 59 ms retrieval.
-The two contradicted facts answered with the new values (October 21st,
-90 per minute), not the ones planted first. To be precise about
+Retrieval survives window churn: 19 of 20 across the two runs, one stale.
+The window peaked around 499 of 500 and never went over, about 85
+messages per run were demoted to the archive, and facts came back exact
+at 32 to 59 ms retrieval. The contradicted facts usually answered with
+the new values (October 21st, 90 per minute) but not always: run two
+answered the API question with the superseded 120. To be precise about
 attribution: in the daemon's flow the store never enters the prompt
 (identity aside), so this recall is served by the conversation index that
 every turn feeds. The store's runtime jobs are identity, provenance, the
 archive, and the browser.
 
-Write-back capture, measured on its own: 7 of 10 planted facts were
-present in the store afterward, and the misses cluster by phrasing rather
-than falling randomly. Possessive declaratives ("my locker combination
-is...") reliably land, often filed into identity; what got dropped was an
-event involving another person (lending a book), an itinerary detail said
-in passing, and a correction phrased as "we lowered X to 90". The
-classifier keeps what sounds like a profile statement and drops events
-and corrections, which is actionable in a way "capture is weak" is not.
-The harness tags every planted fact by form and prints the per-form hits,
-so future runs show whether that pattern holds. Capture is also not what
-serves recall today, which is worth knowing before reading 7 of 10 as a
-failure.
+Write-back capture, measured on its own, and split by where the fact
+landed, because a fact that only survives inside the identity string has
+weaker guarantees than a versioned branch detail. Run one: 3 branch-filed,
+4 identity-only, 3 missed. The identity blob had absorbed the locker
+combination and the database version as if they were who I am. That
+prompted three deterministic kernel fixes: value-bearing facts reroute
+from identity to a branch detail, near-duplicate identity merges are
+blocked by token overlap, and a detail that narrowly restates a branch
+summary supersedes it, so a summary can't keep advertising the dentist's
+old date after the details learn the new one (verified in the store:
+the summary now versions 14th to 21st with history kept). Run two, with
+the fixes: 5 branch-filed, 1 identity-only, 4 missed. The misses that
+held across both runs are events involving another person (lending a
+book) and corrections phrased as "we lowered X to 90"; the other misses
+flip run to run and look like noise. The classifier keeps what sounds
+like a profile statement and drops events and corrections, which is
+actionable in a way "capture is weak" is not. The harness tags every
+planted fact by form and reports branch versus identity placement, so
+further runs show whether the pattern holds. Capture is also not what
+serves recall today, which is worth knowing before reading these numbers
+as failures.
 
 ![recall after total eviction, exact answers at ~40ms](shots/stress-recall.png)
 
