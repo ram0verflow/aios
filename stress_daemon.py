@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
 """Compaction stress test against a live aios daemon.
 
-Plants facts, buries them under dozens of distractor turns on a deliberately
-tiny session window (so the eviction/demotion machinery has to churn), then
-asks for every fact back and grades the answers. State is whatever daemon it
-points at; run the daemon with AIOS_HOME=/tmp/aios-stress to keep your real
-memory out of it.
+Measures three things separately, because they are different claims:
+
+  1. retrieval survives window churn: plant facts, force a tiny session
+     window so every fact gets evicted, bury them under distractors, ask
+     for them back. Attribution is structural: in the daemon's flow the
+     store never enters the prompt (identity aside), so recall rides the
+     driver's message index.
+  2. write-back capture: how many planted facts actually landed in the
+     store as facts. This is the memory-formation path, graded against
+     /v1/memory/browse at the end.
+  3. discipline: two facts get contradicted/updated mid-run (the answer
+     must be the new value, not the old), and two probes ask for things
+     never said (the answer must not be a confident wrong fact).
+
+State is whatever daemon it points at; run with AIOS_HOME somewhere
+disposable to keep real memory out of it:
 
   AIOS_HOME=/tmp/aios-stress ./target/release/aios-daemon --port 4311 &
   python3 stress_daemon.py 4311
@@ -19,23 +30,36 @@ import urllib.request
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 4310
 BASE = f"http://127.0.0.1:{PORT}"
 
+# (planted sentence, recall question, expected needle, forbidden stale needle)
 FACTS = [
-    ("My dentist appointment is on October 14th.", "when is my dentist appointment?", "october 14"),
-    ("My cat is called Biscuit.", "what is my cat called?", "biscuit"),
-    ("I parked the car on level 4B of the airport garage.", "where did I park at the airport?", "4b"),
-    ("My wifi password hint is: the street I grew up on.", "what is my wifi password hint?", "street"),
-    ("I lent Rohan my copy of SICP.", "who did I lend SICP to?", "rohan"),
-    ("The production database runs Postgres 16.", "which Postgres version does production run?", "16"),
-    ("My locker combination at the gym is 7-31-19.", "what is my gym locker combination?", "7-31-19"),
-    ("Mum's birthday dinner is booked at Trattoria Nonna.", "where is mum's birthday dinner booked?", "nonna"),
-    ("My flight lands in Lisbon at 9:40 in the morning.", "what time does my flight land in Lisbon?", "9:40"),
-    ("The API rate limit we agreed on is 120 requests per minute.", "what API rate limit did we agree on?", "120"),
+    ("My dentist appointment is on October 14th.", "when is my dentist appointment?", "october 21", "october 14"),
+    ("My cat is called Biscuit.", "what is my cat called?", "biscuit", None),
+    ("I parked the car on level 4B of the airport garage.", "where did I park at the airport?", "4b", None),
+    ("My wifi password hint is: the street I grew up on.", "what is my wifi password hint?", "street", None),
+    ("I lent Rohan my copy of SICP.", "who did I lend SICP to?", "rohan", None),
+    ("The production database runs Postgres 16.", "which Postgres version does production run?", "16", None),
+    ("My locker combination at the gym is 7-31-19.", "what is my gym locker combination?", "7-31-19", None),
+    ("Mum's birthday dinner is booked at Trattoria Nonna.", "where is mum's birthday dinner booked?", "nonna", None),
+    ("My flight lands in Lisbon at 9:40 in the morning.", "what time does my flight land in Lisbon?", "9:40", None),
+    ("The API rate limit we agreed on is 120 requests per minute.", "what API rate limit did we agree on?", "90", "120"),
+]
+
+# Injected mid-distractor: the versioning/dedup path has to handle these.
+UPDATES = {
+    10: "Change of plans: the dentist moved my appointment to October 21st.",
+    20: "Correction on the API: we lowered the rate limit to 90 requests per minute.",
+}
+
+# Things never said. A confident wrong answer here is the real failure mode.
+PROBES = [
+    ("what is my locker combination at the pool?", "7-31-19"),
+    ("when is my brother's wedding?", "october"),
 ]
 
 DISTRACTORS = [
     "What do you think makes a good operating system design?",
     "I've been listening to a lot of jazz lately, any thoughts on Coltrane?",
-    "Explain how BM25 scoring works in a sentence or two.",
+    "Explain how keyword scoring works in a sentence or two.",
     "I'm thinking about repainting the study. Maybe a warm off-white.",
     "What's a good warmup routine before a run?",
     "Tell me something interesting about the history of Lisbon.",
@@ -103,59 +127,101 @@ def pressure():
     return p["used"], p["budget"], p["evictions"], p["level"]
 
 
+def store_text():
+    b = get("/v1/memory/browse")
+    parts = [b["identity"]["current"]]
+    for br in b["branches"]:
+        parts.append(br["name"])
+        parts.append(br["summary"]["current"])
+        parts.extend(d["current"] for d in br["details"])
+    return " ".join(parts).lower(), b
+
+
 def main():
     t_start = time.time()
     status = get("/v1/status")
     print(f"daemon on :{PORT} | model {status['provider']}/{status['model']} "
           f"| memory brain {status['local_model']}")
 
-    # A window small enough that compaction is constant.
     put_settings({"window_budget": 500})
     print("window budget forced to 500 tokens\n")
 
     print(f"— planting {len(FACTS)} facts")
-    for i, (fact, _, _) in enumerate(FACTS):
+    for i, (fact, _, _, _) in enumerate(FACTS):
         reply, _ = turn(fact)
         print(f"  [{i+1:2}] {fact[:52]:52} -> {reply[:44]!r}")
 
-    print(f"\n— burying them under {len(DISTRACTORS)} distractor turns")
+    print(f"\n— burying them under {len(DISTRACTORS)} distractor turns "
+          f"(+{len(UPDATES)} contradicting updates)")
     max_used = 0
     for i, d in enumerate(DISTRACTORS):
+        if i in UPDATES:
+            up_reply, _ = turn(UPDATES[i])
+            print(f"  [update @{i}] {UPDATES[i][:46]:46} -> {up_reply[:36]!r}")
         turn(d)
         used, budget, evictions, level = pressure()
         max_used = max(max_used, used)
-        if (i + 1) % 5 == 0:
+        if (i + 1) % 10 == 0:
             print(f"  [{i+1:2}/{len(DISTRACTORS)}] window {used}/{budget} ({level}), "
                   f"{evictions} demotions so far")
 
-    print("\n— recall")
-    hits, results = 0, []
-    for i, (fact, question, needle) in enumerate(FACTS):
+    print("\n— recall (updated facts must answer with the NEW value)")
+    hits, stale, results = 0, 0, []
+    for fact, question, needle, forbidden in FACTS:
         reply, done = turn(question)
         insp = (done or {}).get("inspector", {})
-        ok = needle.lower() in reply.lower()
+        low = reply.lower()
+        ok = needle.lower() in low
+        went_stale = bool(forbidden) and forbidden.lower() in low and not ok
         hits += ok
+        stale += went_stale
         results.append({"fact": fact, "question": question, "needle": needle,
-                        "reply": reply, "ok": ok,
+                        "reply": reply, "ok": ok, "stale": went_stale,
                         "loaded": insp.get("loaded"),
                         "retrieval_ms": insp.get("retrieval_ms"),
                         "faulted": insp.get("faulted")})
-        mark = "PASS" if ok else "FAIL"
-        print(f"  [{mark}] {question[:44]:44} -> {reply[:60]!r}")
+        mark = "PASS" if ok else ("STALE" if went_stale else "FAIL")
+        print(f"  [{mark:5}] {question[:42]:42} -> {reply[:58]!r}")
+
+    print("\n— probes (things never said; a confident wrong fact is the failure)")
+    probe_ok, probe_results = 0, []
+    for question, must_not in PROBES:
+        reply, done = turn(question)
+        insp = (done or {}).get("inspector", {})
+        ok = must_not.lower() not in reply.lower()
+        probe_ok += ok
+        probe_results.append({"question": question, "must_not": must_not,
+                              "reply": reply, "ok": ok,
+                              "faulted": insp.get("faulted")})
+        mark = "PASS" if ok else "LEAK"
+        print(f"  [{mark:5}] {question[:42]:42} -> {reply[:58]!r}")
+
+    # Write-back capture: which planted facts exist in the STORE at all.
+    stext, browse = store_text()
+    captured = sum(1 for _, _, needle, _ in FACTS if needle.lower() in stext)
+    n_details = sum(len(b["details"]) for b in browse["branches"])
 
     used, budget, evictions, level = pressure()
-    store = get("/v1/status")["counters"]["store"]
     elapsed = time.time() - t_start
-    print(f"\n=== recall {hits}/{len(FACTS)} "
-          f"| window peaked at {max_used}/{budget} tokens, never exceeded "
-          f"| {evictions} messages demoted to archive "
-          f"| store now {store['branches']} topics / {store['details']} facts "
-          f"| {len(FACTS)*2 + len(DISTRACTORS)} turns in {elapsed/60:.1f} min ===")
+    n_turns = len(FACTS) * 2 + len(DISTRACTORS) + len(UPDATES) + len(PROBES)
+    print(f"\n=== retrieval under churn: {hits}/{len(FACTS)} "
+          f"({stale} answered stale) "
+          f"| probes clean: {probe_ok}/{len(PROBES)} "
+          f"| store capture: {captured}/{len(FACTS)} needles present "
+          f"({len(browse['branches'])} topics, {n_details} details) "
+          f"| window peak {max_used}/{budget}, {evictions} demotions "
+          f"| {n_turns} turns in {elapsed/60:.1f} min ===")
+    print("note: generation-time recall is served by the driver index plus "
+          "identity; the store never enters the prompt. Capture measures the "
+          "write-back path on its own.")
 
     with open("/tmp/aios_stress_report.json", "w") as f:
-        json.dump({"recall": hits, "total": len(FACTS), "max_window_used": max_used,
-                   "budget": budget, "evictions": evictions, "store": store,
-                   "elapsed_s": elapsed, "results": results}, f, indent=2)
+        json.dump({"recall": hits, "stale": stale, "total": len(FACTS),
+                   "probes_ok": probe_ok, "probes": probe_results,
+                   "store_capture": captured, "store_details": n_details,
+                   "max_window_used": max_used, "budget": budget,
+                   "evictions": evictions, "elapsed_s": elapsed,
+                   "results": results}, f, indent=2)
     print("full report: /tmp/aios_stress_report.json")
 
 

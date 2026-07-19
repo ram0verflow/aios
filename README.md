@@ -219,27 +219,44 @@ fixed window, then asks for them back. 130 turns over 104 minutes, the
 window never went over budget, 9 of 10 facts came back (the tenth was a
 grader casing bug). `python3 endurance.py <port>` against a running server.
 
-The daemon has its own compaction stress harness, and the point of it is
-that eviction should be safe. It forces the session window down to 500
-tokens, plants ten facts, buries them under thirty distractor turns so
-every planted fact gets demoted out of the window, then asks for them all
-back:
+The daemon has its own compaction stress harness. It forces the session
+window down to 500 tokens, plants ten facts, buries them under thirty
+distractor turns so every planted fact gets demoted out of the window,
+contradicts two of them along the way (the dentist moves, the rate limit
+drops), then asks for everything back plus two things that were never
+said:
 
 ```
 AIOS_HOME=/tmp/aios-stress ./target/release/aios-daemon --port 4311
 python3 stress_daemon.py 4311
 ```
 
-Latest run, with a hosted answer model (Nova 2 Lite) over the local memory
-stack: the window peaked at 499 of 500 tokens and never went over, 70
-messages were demoted to the archive, and recall came back 10 of 10 with
-retrieval between 30 and 45 ms and zero page faults. Locker combinations,
-garage levels, version numbers, times, all exact. The store's topic file
-barely grew during the run; what answered was the conversation index that
-every turn feeds, which is the design working as intended: the window
-forgets, the memory does not.
+The harness grades three claims separately, because they are different
+claims. One run each, n of 10, hosted answer model (Nova 2 Lite) over the
+local memory stack:
 
-![recall after total eviction: 10 of 10, ~39ms retrieval](shots/stress-recall.png)
+Retrieval survives window churn: 10 of 10, with zero stale answers. The
+window peaked at 499 of 500 and never went over, 83 messages were demoted
+to the archive, and every fact came back exact at 32 to 59 ms retrieval.
+The two contradicted facts answered with the new values (October 21st,
+90 per minute), not the ones planted first. To be precise about
+attribution: in the daemon's flow the store never enters the prompt
+(identity aside), so this recall is served by the conversation index that
+every turn feeds. The store's runtime jobs are identity, provenance, the
+archive, and the browser.
+
+Never-said probes: 2 of 2 clean. Asked for a pool locker combination when
+only a gym one exists, and for a wedding date never mentioned, the model
+page faulted both times, the re-page found nothing, and the answer was an
+honest "I don't have that" rather than the gym combination with confidence.
+That is the fault path doing its actual job.
+
+Write-back capture, measured on its own: 7 of 10 planted facts were
+present in the store afterward. Capture is the weakest of the three
+numbers and depends on the classifier model; it is also not what serves
+recall today, which is worth knowing before reading it as a failure.
+
+![recall after total eviction, exact answers at ~40ms](shots/stress-recall.png)
 
 Notes from living with it: write back runs one extra model call per turn,
 so replies take a few seconds longer than plain chat. The 8B model
