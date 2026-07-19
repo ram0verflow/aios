@@ -142,6 +142,11 @@ pub struct Settings {
     pub social_enabled: bool,
     /// Allow the model to raise WEB_NEEDED faults (searched by the daemon).
     pub web_enabled: bool,
+    /// Page query-relevant store topics (summaries + current facts) into the
+    /// prompt alongside the driver's messages. Default off: measured against
+    /// the stress harness it added no recall the driver index didn't already
+    /// provide (see README). The toggle stays for future runs.
+    pub store_context: bool,
 }
 
 impl Default for Settings {
@@ -161,6 +166,7 @@ impl Default for Settings {
             privacy_mode: MODE_PERSISTENT.into(),
             social_enabled: true,
             web_enabled: true,
+            store_context: false,
         }
     }
 }

@@ -238,15 +238,16 @@ the second disagreed with it in both directions, which is exactly why
 these stay labeled a smoke test and not a benchmark. The LoCoMo numbers
 above are the measured ones.
 
-Never-said probes: 3 of 4 across the two runs, and this is the result I
-care most about. Asked for a pool locker combination when only a gym one
-exists, and for a wedding date never mentioned, run one page faulted both
-times and answered an honest "I don't have that". Run two answered the
-pool question with the gym combination, which is precisely the
-confabulation the probe exists to catch: the question shares a frame with
-a real stored fact and is designed to tempt it. One leak in four probes
-is the honest number, and it is the argument for the fault fine-tune in
-the answer model rather than a solved problem.
+Never-said probes, and this is the result I care most about. Asked for a
+pool locker combination when only a gym one exists, and for a wedding
+date never mentioned, run one page faulted both times and answered an
+honest "I don't have that". Then, in one of two adversarial trials, the
+model answered a question about a locker that was never mentioned by
+returning the gym combination with full confidence. I am deliberately not
+attaching a ratio to that: a ratio invites averaging, and this is the
+confabulation the probe exists to catch, the failure mode that erodes
+trust fastest, and the argument for the fault fine-tune in the answer
+model rather than a solved problem.
 
 Retrieval survives window churn: 19 of 20 across the two runs, one stale.
 The window peaked around 499 of 500 and never went over, about 85
@@ -280,6 +281,27 @@ planted fact by form and reports branch versus identity placement, so
 further runs show whether the pattern holds. Capture is also not what
 serves recall today, which is worth knowing before reading these numbers
 as failures.
+
+Which raised the question the store had coming: does any of that capture
+machinery matter to the thing that ships? I wired query-relevant store
+topics (summary plus current fact values) into the prompt behind a
+setting, instrumented every answer with how many topics got paged in, and
+ran the harness a third time. The answer, on this evidence, is no. Recall
+was 10 of 10, but the one question where the store could have earned its
+place (the corrected rate limit, which a previous run answered stale) was
+paged zero store topics, because the correction was never captured; the
+pass came from the driver index having a better day. Only four of ten
+questions pulled in any store topic, and all four also had the raw
+messages available. One real if narrow win: the dentist question paged in
+the superseded summary and answered the new date, which is the case the
+stale-summary fix exists for; before that fix this experiment would have
+pushed the old date into the prompt. The pool-locker probe leaked again
+in this run, its second leak in three trials, with and without the store
+block, so the block neither causes nor prevents that. Net: store context
+ships default off, the toggle stays, and the store's runtime jobs remain
+identity, provenance, the archive, and the browser. If capture gets good
+enough to know things the raw history doesn't say plainly, this
+experiment is sitting there ready to rerun.
 
 ![recall after total eviction, exact answers at ~40ms](shots/stress-recall.png)
 

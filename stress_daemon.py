@@ -184,6 +184,7 @@ def main():
                         "form": form,
                         "reply": reply, "ok": ok, "stale": went_stale,
                         "loaded": insp.get("loaded"),
+                        "store_topics": insp.get("store_topics"),
                         "retrieval_ms": insp.get("retrieval_ms"),
                         "faulted": insp.get("faulted")})
         mark = "PASS" if ok else ("STALE" if went_stale else "FAIL")
@@ -198,6 +199,7 @@ def main():
         probe_ok += ok
         probe_results.append({"question": question, "must_not": must_not,
                               "reply": reply, "ok": ok,
+                              "store_topics": insp.get("store_topics"),
                               "faulted": insp.get("faulted")})
         mark = "PASS" if ok else "LEAK"
         print(f"  [{mark:5}] {question[:42]:42} -> {reply[:58]!r}")
@@ -232,9 +234,15 @@ def main():
           f"({len(browse['branches'])} topics, {n_details} details) "
           f"| window peak {max_used}/{budget}, {evictions} demotions "
           f"| {n_turns} turns in {elapsed/60:.1f} min ===")
-    print("note: generation-time recall is served by the driver index plus "
-          "identity; the store never enters the prompt. Capture measures the "
-          "write-back path on its own.")
+    store_ctx = get("/v1/settings").get("store_context", False)
+    if store_ctx:
+        print("note: store_context is ON; per-question store_topics in the "
+              "report shows what the store block contributed. Capture still "
+              "measures the write-back path on its own.")
+    else:
+        print("note: store_context is OFF; generation-time recall is served "
+              "by the driver index plus identity. Capture measures the "
+              "write-back path on its own.")
 
     with open("/tmp/aios_stress_report.json", "w") as f:
         json.dump({"recall": hits, "stale": stale, "total": len(FACTS),

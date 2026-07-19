@@ -265,6 +265,20 @@ impl Worker {
         let identity = self.shared.store.lock().unwrap().get_identity().to_string();
         self.kernel.set_identity(&identity);
 
+        // The store-into-context experiment: page query-relevant topics
+        // (summary + current facts, latest values only) in alongside the
+        // driver's raw messages. The tuned models never see this; they were
+        // not trained with a [MEMORY TOPICS] block.
+        let store_topics = if s.store_context && !s.model.starts_with("aios-ft") {
+            let block = self.store_topics_block(text);
+            let n = if block.is_empty() { 0 } else { block.matches("• ").count() };
+            self.kernel.set_store_block(&block);
+            n
+        } else {
+            self.kernel.set_store_block("");
+            0
+        };
+
         // Session RAM -> kernel session messages.
         let mut session: Vec<ChatMessage> = Vec::new();
         if !self.window.evicted_summary.is_empty() {
@@ -293,6 +307,7 @@ impl Worker {
             "namespace": meta.namespace,
             "budget": meta.memory_budget_tokens,
             "retrieval_ms": retrieval_ms,
+            "store_topics": store_topics,
         }));
 
         let keys = self.shared.keys();
@@ -487,6 +502,7 @@ impl Worker {
             "budget": meta.memory_budget_tokens,
             "retrieval_ms": retrieval_ms,
             "generation_ms": generation_ms,
+            "store_topics": store_topics,
             "faulted": faulted,
             "fault_topic": fault_topic,
             "retried": retried,
@@ -512,6 +528,52 @@ impl Worker {
             "inspector": inspector,
             "pressure": self.pressure(),
         }));
+    }
+
+    /// The store block for one turn: the topics whose text shares words
+    /// with the query, rendered as summary plus latest fact values. Current
+    /// values only; history stays in the store. Empty when nothing matches,
+    /// so unrelated turns carry no store baggage.
+    fn store_topics_block(&self, query: &str) -> String {
+        let terms: Vec<String> = query
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| t.len() > 2)
+            .map(String::from)
+            .collect();
+        if terms.is_empty() {
+            return String::new();
+        }
+        let store = self.shared.store.lock().unwrap();
+        let mut scored: Vec<(usize, String)> = store
+            .all_branches()
+            .filter_map(|b| {
+                let hay = b.all_text().to_lowercase();
+                let hits = terms.iter().filter(|t| hay.contains(t.as_str())).count();
+                if hits == 0 {
+                    return None;
+                }
+                let mut lines = format!("• {}: {}", b.name, b.summary.current());
+                for d in b.details.iter().rev().take(4) {
+                    let cur = d.current();
+                    let body = cur.split_once("] ").map(|(_, t)| t).unwrap_or(cur);
+                    lines.push_str(&format!("\n  - {body}"));
+                }
+                Some((hits, lines))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        let mut block = String::new();
+        for (_, lines) in scored.into_iter().take(3) {
+            if block.len() + lines.len() > 900 {
+                break;
+            }
+            if !block.is_empty() {
+                block.push('\n');
+            }
+            block.push_str(&lines);
+        }
+        block
     }
 
     /// Memory formation classification. Local by default (private); with

@@ -82,11 +82,16 @@ pub struct Kernel {
     kv: Option<crate::llamaserver::LlamaServer>,
     drivers: Vec<Box<dyn MemoryIndexDriver>>,
     identity: String,
+    /// Optional per-turn block of store content (topic summaries and
+    /// current facts) to page in alongside the driver's messages. Empty
+    /// means the store stays out of the prompt, which was the only
+    /// behavior before the store-into-context experiment.
+    store_block: String,
 }
 
 impl Kernel {
     pub fn new(ollama: Ollama, config: KernelConfig) -> Self {
-        Kernel { config, ollama, kv: None, drivers: Vec::new(), identity: String::new() }
+        Kernel { config, ollama, kv: None, drivers: Vec::new(), identity: String::new(), store_block: String::new() }
     }
 
     /// Mount the KV-paging inference backend.
@@ -129,6 +134,11 @@ impl Kernel {
         self.identity = identity.to_string();
     }
 
+    /// Set (or clear, with "") the store content paged in for the next turn.
+    pub fn set_store_block(&mut self, block: &str) {
+        self.store_block = block.to_string();
+    }
+
     fn compute_budget(&self, session: &[ChatMessage]) -> usize {
         let mut used = self.config.system_overhead_tokens + self.config.max_response_tokens;
         for m in session.iter().rev().take(6) {
@@ -159,11 +169,14 @@ impl Kernel {
     }
 
     fn assemble_prompt(&self, context: &str, template: &str) -> String {
-        let ctx = if self.identity.is_empty() {
-            context.to_string()
-        } else {
-            format!("[IDENTITY]\n{}\n\n{}", self.identity, context)
-        };
+        let mut ctx = String::new();
+        if !self.identity.is_empty() {
+            ctx.push_str(&format!("[IDENTITY]\n{}\n\n", self.identity));
+        }
+        if !self.store_block.is_empty() {
+            ctx.push_str(&format!("[MEMORY TOPICS]\n{}\n\n", self.store_block));
+        }
+        ctx.push_str(context);
         template.replace("{context}", &ctx)
     }
 
@@ -558,6 +571,21 @@ mod tests {
         let id = vec![WriteBack { kind: "IDENTITY_UPDATE".into(), content: "name: abhi".into(), branch: String::new() }];
         assert_eq!(Kernel::apply_write_backs(&mut store, &id, 4.0), 0);
         assert_eq!(store.get_identity(), "Name: Abhi");
+    }
+
+    #[test]
+    fn store_block_rides_into_the_prompt() {
+        let mut k = Kernel::new(Ollama::new("m", "e"), KernelConfig::default());
+        k.set_identity("Abhi");
+        k.set_store_block("• dentist: appointment on October 21st");
+        let (msgs, _) = k.prepare("when is my appointment?", &[]);
+        let system = &msgs[0].content;
+        assert!(system.contains("[IDENTITY]\nAbhi"));
+        assert!(system.contains("[MEMORY TOPICS]\n• dentist: appointment on October 21st"));
+        // Cleared block leaves no empty header behind.
+        k.set_store_block("");
+        let (msgs, _) = k.prepare("hi", &[]);
+        assert!(!msgs[0].content.contains("[MEMORY TOPICS]"));
     }
 
     #[test]
