@@ -410,6 +410,53 @@ case the driver index cannot serve. The next real fix is making the
 fault chain actually fire when the model holds half an answer, which the
 model mostly will not do on instruction alone.
 
+That last sentence turned out to be wrong in an encouraging direction:
+the model will do it on instruction, if the instruction shows it how.
+Before committing to a fine tune, the fault instruction was rewritten to
+be example driven, naming the competing habit outright ("never ask the
+user to supply a fact, faulting IS how you look it up") with three
+worked cases of holding half an answer and faulting for the named gap.
+Same seven run protocol, only that change: composition went from 1 of 7
+to 4 clean passes of 7, and the fault fired in five of seven runs after
+never having fired at all. The journals show the whole chain doing its
+job for the first time: CONTEXT_NEEDED for the plan limit, one targeted
+re-page, 62000 minus 50000 through the calculator, verdict. The costs,
+also measured: two runs wedged into the fallback voice after an
+unsatisfiable protocol line, one long transcript run got the direction
+right but garbled the magnitude ("exceeded by 62,000 calls"), the model
+now occasionally faults on general knowledge questions it should just
+answer (twice in seven runs, on a warmup question), and the date shift
+case did not move, because a model that thinks it has a complete answer
+has no reason to fault. Instruction fixes the known-gap case; it cannot
+fix the silent-staleness case. The fine tune stays on the shelf unless
+that second shape starts to matter more.
+
+The store context follow up got its replication test in the same sweep:
+eight fresh composition cases, each verified programmatically so the
+question cannot lexically reach the second fact, store context on
+against off, per answer attribution. Result: a dead tie, five of eight
+each (after the grader produced its first false NEGATIVE, a correct
+"you are over the engineering hiring budget" scored as a miss for not
+containing the needles; the fixture suite now covers that direction
+too). The n of 1 signal did not replicate, and the composition passes in
+both conditions were fault-and-calculator work with zero store topics
+paged. So store context stays off and the graph question loses its
+best-looking evidence. But the sweep bought something better than the
+answer it was designed for, in one failure trace: the model faulted
+correctly for "total number of engineers hired this year", and the
+re-page found nothing, because the stored fact says "15 people on the
+platform team", which shares not one word with the model's phrasing of
+the gap. The fault chain names the missing thing in the model's
+vocabulary and searches in the user's. Retrieval by shared words fails
+across that gap in both directions, and no amount of prompting fixes
+it. That, not the store, is now the standing argument for an entity
+level reachability path. One more hazard from the same sweep, present
+with the store on and off alike: cases that share unit words bleed into
+each other, one answer subtracted the storage tier's 140 gigabytes from
+the photo library's 620 because both mention gigabytes. Reachability by
+vocabulary is too blunt in both directions at once, it misses what is
+phrased differently and conflates what is phrased alike.
+
 ![recall after total eviction, exact answers at ~40ms](shots/stress-recall.png)
 
 Notes from living with it: write back runs one extra model call per turn,

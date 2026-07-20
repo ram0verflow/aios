@@ -122,6 +122,18 @@ FIXTURES = [
     ("Your dentist appointment is scheduled for October 21st.", "october 21", True,
      "date with ordinal suffix"),
     ("Your dentist appointment is on October 14th.", "october 21", False, "wrong date"),
+    # The grader's first false NEGATIVE, from the disjoint run: a correct
+    # verdict phrased without any of the case's needles. Needle sets for
+    # yes/no verdict questions must include the natural verdict phrasing.
+    ("You've budgeted for 12 engineers this year, and there are currently 15 people "
+     "on the platform team. This suggests that you are over the engineering hiring budget.",
+     "over the engineering hiring budget", True,
+     "natural verdict phrasing must be matchable as an adjacent phrase"),
+    # And the direction-only trap from the same round: "exceeded" alone
+    # passes a reply whose numbers are garbled. Delta needles catch it.
+    ("You've used 112,000 API calls, and your plan allows 50,000. Therefore, "
+     "you've exceeded your allowance by 62,000 calls.", "12,000", False,
+     "garbled magnitude must not match the correct delta"),
 ]
 
 HEDGE_FIXTURES = [

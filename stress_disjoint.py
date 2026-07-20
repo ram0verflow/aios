@@ -68,7 +68,11 @@ CASES = [
         "a": "We budgeted for 12 engineers this year.",
         "b": "There are 15 people on the platform team now.",
         "q": "are we over the engineering hiring budget?",
-        "needles": ["3", "exceeded"],
+        # "over the engineering hiring budget" as an adjacent phrase is safe:
+        # a hedge would restate the question but verdict() also rejects punts.
+        # This case produced the grader's first false NEGATIVE (a correct
+        # "you are over the engineering hiring budget" graded FAIL).
+        "needles": ["3", "exceeded", "over the engineering hiring budget", "over budget"],
     },
     {
         "name": "laptop battery",
