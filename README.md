@@ -360,21 +360,55 @@ the identity guard uses) stopping a chain from asking the same thing
 twice in different words. Arithmetic on remembered values goes through a
 deterministic evaluator now, not model math: the model raises
 CALC_NEEDED, a small parser computes sums and date shifts exactly, and
-the result comes back as context. On the rerun the suite went 5 of 5,
-and the journal shows the machinery earning it: October 14 plus 7 days
-and 62000 minus 50000 both went through the calculator, and the
-composition answer was a real verdict, "exceeded your plan limit by
-12,000 calls". Two graders' notes for honesty: my first pass at this
-rerun scored a false pass (the answer merely echoed the word "over"
-while asking the user for data that was sitting in memory; the needle
-now requires a verdict), and a protocol parsing bug of mine (prefix
-matched only at the start of a reply while the holdback matched it
-anywhere) produced one artificial failure first. Also honest: in the
-passing run retrieval happened to surface both composition facts, so the
-new fault chain was not exercised end to end; the repeated runs now in
-flight exist to catch the case where retrieval misses one side. Until
-they land, every number in this section is one or two runs old and
-should be read as a smoke test.
+the result comes back as context. A single regression run went 5 of 5,
+and the journal showed the machinery earning it: October 14 plus 7 days
+and 62000 minus 50000 both went through the calculator. Then I ran it
+seven more times, and the single run turned out to be the outlier.
+
+Here is the honest scale result (Nova Pro, seven valid runs across short
+and long transcripts; one eighth run was a Bedrock transport failure and
+is excluded, not scored as zero). Adjudicated by hand from the reply
+text, because the automated grader was still false-passing, of which
+more below:
+
+- Arithmetic through the calculator: 7 of 7. When both operands are in
+  context, the deterministic evaluator is reliable, and this is the one
+  clean win of the round.
+- Contradiction chains (editor changed three times, standup twice): 7 of
+  7. Chronological ordering carries recency; the model picks the last
+  value every time.
+- Date-shift synthesis: 3 of 7, four stale. The second mention ("pushing
+  everything back a week") shares no keyword with "dentist", so at scale
+  retrieval usually does not surface it, the model never sees a reason to
+  compute anything, and it answers the raw October 14th. This is the
+  composition failure wearing a different hat, and it confirms the
+  prediction that answer-time synthesis is the first thing to degrade at
+  length.
+- Composition (am I over my allowance): 1 of 7. The fault chain that was
+  the whole point of the fix mostly does not fire. Six of seven times the
+  model answered "to determine that, I need to know your usage" and asked
+  the user for a fact that was sitting in memory, instead of raising
+  CONTEXT_NEEDED for the missing plan size. The one pass was a long
+  transcript with store context on, where the store block happened to
+  carry the plan size into the prompt directly.
+
+So the composition fix did not work, and I am leaving that thread open.
+The 5 of 5 regression was retrieval luck on a single run. Two process
+notes, because they are the point as much as the numbers are. The
+automated grader false-passed the composition case in five of these
+runs: the needle "you're over" matched the model's own "if you're over
+your monthly allowance", the third time this exact question-echo bug has
+appeared in this test and the second time I thought I had killed it. The
+needle is now verdict-only. And the lone bright spot is a real one worth
+keeping: that single composition pass came from store context, the
+feature I had measured as useless and shipped default off. For a fact
+that retrieval structurally cannot reach, the store block put it in front
+of the model when nothing else would. That is n of 1 and not enough to
+turn the setting back on, but it is the first evidence in this whole
+thread that the store's runtime path might earn its place on exactly the
+case the driver index cannot serve. The next real fix is making the
+fault chain actually fire when the model holds half an answer, which the
+model mostly will not do on instruction alone.
 
 ![recall after total eviction, exact answers at ~40ms](shots/stress-recall.png)
 

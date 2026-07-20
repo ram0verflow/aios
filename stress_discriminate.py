@@ -84,7 +84,7 @@ CASES = [
         "question": "am I over my monthly API allowance?",
         # A verdict, not an echo of the question: "over" alone false-passed
         # a reply that merely restated the question and asked for the data.
-        "needles": ["over by", "you're over", "you are over", "exceed", "12 thousand", "12,000", "12000"],
+        "needles": ["over by", "exceeded", "12 thousand", "12,000", "12000"],  # verdict forms only; "you're over" false-matched "if you're over"
         "forbidden": [],
     },
 ]
@@ -158,6 +158,9 @@ def main():
         mark = "PASS" if ok else ("STALE" if stale else "FAIL")
         print(f"  [{mark:5}] st={insp.get('store_topics')} {c['name']:28} -> {reply[:70]!r}")
 
+    errored = sum(1 for r in results if r["reply"].startswith("[ERROR"))
+    if errored >= 3:
+        print("!! infra failure: %d/%d turns errored (bedrock transport); run INVALID, not a model result" % (errored, len(results)))
     passed = sum(r["ok"] for r in results)
     print(f"\n=== store_context {'ON' if on else 'OFF'}: {passed}/{len(CASES)} ===")
     with open(f"/tmp/discriminate_{MODE}.json", "w") as f:
