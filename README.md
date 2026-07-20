@@ -457,6 +457,41 @@ the photo library's 620 because both mention gigabytes. Reachability by
 vocabulary is too blunt in both directions at once, it misses what is
 phrased differently and conflates what is phrased alike.
 
+So the cheapest counter to that finding got built and measured before
+any graph work: fault re-pages can now union in the fault topic's pure
+dense neighbours, candidate gate bypassed, behind a setting. The trace
+that motivated it flipped on the first traced run: the model faulted for
+"current number of engineers hired this year", the semantic re-page
+carried "15 people on the platform team" into context, the calculator
+did 15 minus 12, and the answer was a clean "over the engineering hiring
+budget by 3 engineers", in both store conditions. Vocabulary mismatch on
+the fault path is bridgeable at retrieval time. What the same sweep gave
+back with the other hand: the store on/off tie still did not break
+(hand adjudicated 6 of 8 against 5 of 8, store off ahead by noise), and
+the conflation got worse where it was already worst. Both conditions now
+import the storage tier's 140 gigabytes as the drive's current usage and
+conclude a 620 gigabyte library fits a 500 gigabyte drive with both
+correct numbers present in the same sentence. The wider net bridges gaps
+and feeds conflation with the same motion. That sharpens what a graph
+would actually be for: not recall, which expansion now covers, but
+precision, keeping facts attached to their entities so a number cannot
+drift between cases just because both say gigabytes.
+
+Housekeeping from the same round, briefly. The wedge from the previous
+sweep was diagnosed by the first fully traced run: the model burned
+three of four action loop rounds on calculator syntax the parser
+refused, "15 (current headcount) - 12 (budgeted headcount)", then the
+word minus, then unit words. The calculator now normalizes model shaped
+expressions, those three are regression tests, and the traced sweeps
+since show zero wedges in sixteen questions. The fault dedup got its own
+regression test (the same gap reworded is suppressed, a different gap
+chains). And the grader claimed its third natural phrasing false
+negative, a correct "you will need to move off the basic tier" scored
+as a miss. Substring needles are now demonstrably the wrong tool for
+yes or no verdict cases in both directions; sweeps get hand adjudicated
+until the harness grows a judge mode for those, and the fixture file
+keeps growing either way.
+
 ![recall after total eviction, exact answers at ~40ms](shots/stress-recall.png)
 
 Notes from living with it: write back runs one extra model call per turn,
