@@ -27,6 +27,8 @@ import sys
 import time
 import urllib.request
 
+from grading import contains_value, verdict
+
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 4310
 BASE = f"http://127.0.0.1:{PORT}"
 
@@ -176,8 +178,8 @@ def main():
         reply, done = turn(question)
         insp = (done or {}).get("inspector", {})
         low = reply.lower()
-        ok = needle.lower() in low
-        went_stale = bool(forbidden) and forbidden.lower() in low and not ok
+        ok = verdict(reply, [needle])
+        went_stale = bool(forbidden) and contains_value(reply, forbidden) and not ok
         hits += ok
         stale += went_stale
         results.append({"fact": fact, "question": question, "needle": needle,
@@ -195,7 +197,7 @@ def main():
     for question, must_not in PROBES:
         reply, done = turn(question)
         insp = (done or {}).get("inspector", {})
-        ok = must_not.lower() not in reply.lower()
+        ok = not contains_value(reply, must_not)
         probe_ok += ok
         probe_results.append({"question": question, "must_not": must_not,
                               "reply": reply, "ok": ok,
@@ -212,10 +214,10 @@ def main():
     print("\n— write-back capture by form (branch-filed is the real number)")
     for _, _, needle, _, form in FACTS:
         n = needle.lower()
-        if n in branches_text:
+        if contains_value(branches_text, n):
             captured += 1
             mark = "HIT "
-        elif n in identity:
+        elif contains_value(identity, n):
             id_only += 1
             mark = "IDNT"
         else:

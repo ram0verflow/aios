@@ -24,6 +24,8 @@ import json
 import sys
 import urllib.request
 
+from grading import verdict, contains_any
+
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 4310
 MODE = sys.argv[2] if len(sys.argv) > 2 else "off"
 GAPS = int(sys.argv[3]) if len(sys.argv) > 3 else 2  # distractors per round; raise for long transcripts
@@ -84,7 +86,7 @@ CASES = [
         "question": "am I over my monthly API allowance?",
         # A verdict, not an echo of the question: "over" alone false-passed
         # a reply that merely restated the question and asked for the data.
-        "needles": ["over by", "exceeded", "12 thousand", "12,000", "12000"],  # verdict forms only; "you're over" false-matched "if you're over"
+        "needles": ["exceeded", "12 thousand", "12,000", "12000"],  # verdict forms; graded by grading.verdict (needle + not-a-punt)
         "forbidden": [],
     },
 ]
@@ -150,8 +152,8 @@ def main():
         reply, done = turn(c["question"])
         insp = (done or {}).get("inspector", {})
         low = reply.lower()
-        ok = any(n in low for n in c["needles"])
-        stale = any(f in low for f in c["forbidden"]) and not ok
+        ok = verdict(reply, c["needles"])
+        stale = contains_any(reply, c["forbidden"]) and not ok
         results.append({"case": c["name"], "reply": reply, "ok": ok, "stale": stale,
                         "store_topics": insp.get("store_topics"),
                         "loaded": insp.get("loaded")})

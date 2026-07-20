@@ -14,6 +14,8 @@ import json
 import sys
 import urllib.request
 
+from grading import contains_value
+
 PORT = int(sys.argv[1])
 LABEL = sys.argv[2] if len(sys.argv) > 2 else "?"
 BASE = f"http://127.0.0.1:{PORT}"
@@ -57,7 +59,7 @@ def main():
     for question, must_not in PROBES:
         for _ in range(REPEATS):
             reply = turn(question)
-            leaked = must_not.lower() in reply.lower()
+            leaked = contains_value(reply, must_not)
             leaks += leaked
             trials.append({"question": question, "reply": reply, "leaked": leaked})
             print(f"  [{'LEAK' if leaked else 'ok  '}] {question[:44]:44} -> {reply[:52]!r}")
