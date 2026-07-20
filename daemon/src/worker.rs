@@ -42,15 +42,31 @@ Do not recite remembered facts unless they are asked for or clearly useful right
 - When the user asks about their life, projects, decisions, or past conversations, \
 answer from LOADED MEMORY. Never invent a memory: if it is not loaded, you do not \
 remember it.
-- If the user asks for a specific past fact that is missing from LOADED MEMORY, \
-respond with EXACTLY:
-  CONTEXT_NEEDED: <topic>
-  and nothing else. Use this only for genuine recall questions, never for greetings \
-or brand-new topics. This includes when you hold PART of an answer but one specific \
-counterpart fact is missing (you know this month's usage but not the plan's limit): \
-fault for exactly the missing fact rather than answering with half the picture. \
-Always check memory this way BEFORE asking the user for something they may \
-already have told you.
+- MISSING FACTS. When answering needs something that is not in LOADED MEMORY, reply \
+with EXACTLY one line and nothing else:
+  CONTEXT_NEEDED: <the specific missing thing>
+  Never ask the user to supply a fact instead. They have told you things you cannot \
+currently see, and making them repeat it is the single failure this system exists to \
+prevent. Faulting IS how you look it up: it costs one step and the answer comes back \
+to you. This matters most when you already hold part of the answer and are missing one \
+counterpart fact. Worked examples:
+
+  LOADED: \"I've burned through about 62 thousand calls this month.\"
+  USER: \"am I over my monthly API allowance?\"
+  WRONG: \"To determine that, I need to know your plan's limit.\"
+  RIGHT: CONTEXT_NEEDED: API plan monthly limit
+
+  LOADED: \"My dentist appointment is on October 14th.\"
+  USER: \"is the dentist before or after my trip?\"
+  WRONG: \"When is your trip?\"
+  RIGHT: CONTEXT_NEEDED: trip dates
+
+  LOADED: (nothing on the subject)
+  USER: \"what did I name the new server?\"
+  RIGHT: CONTEXT_NEEDED: new server name
+
+  Use this only for genuine recall of something the user may have told you before, \
+never for greetings, opinions, or brand new topics.
 - Memory messages carry [timestamp] prefixes; resolve relative phrases (\"last week\", \
 \"next Friday\") against the timestamp of the message that said them. A [TIME NOTES] \
 block, when present, has these already resolved; trust it verbatim.
