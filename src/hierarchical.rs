@@ -96,6 +96,14 @@ pub struct HierarchicalTopicDriver {
     /// entity string rather than the diluted message text.
     entity_msgs: HashMap<String, Vec<usize>>,
     entity_emb: HashMap<String, Vec<f32>>,
+    /// Co-occurrence edges (issue #15): two entities are linked when they
+    /// appear in the same message. A query that resolves to one node can then
+    /// walk one hop to reach messages hanging off its neighbours, the reach
+    /// that pure query->node embedding similarity cannot supply. Note the
+    /// cold-start limit this carries: entities planted in separate turns
+    /// (like the disjoint harness's "engineers" and "platform team") never
+    /// co-occur, so no edge forms between them.
+    entity_edges: HashMap<String, std::collections::HashSet<String>>,
     bm25: Option<Bm25Index>,
     /// Online embedder for incremental ingestion (None => keyword-only).
     embedder: Option<Ollama>,
@@ -157,6 +165,7 @@ impl HierarchicalTopicDriver {
             name_embeddings: HashMap::new(),
             entity_msgs: HashMap::new(),
             entity_emb: HashMap::new(),
+            entity_edges: HashMap::new(),
             bm25: None,
             embedder: None,
             route_cfg: RouteConfig::default(),
@@ -358,12 +367,20 @@ impl HierarchicalTopicDriver {
     /// entity set comes from `content_entities`, so units and numbers are
     /// already dropped.
     fn index_entities(&mut self, idx: usize, text: &str) {
-        for e in crate::kernel::content_entities(text) {
+        let ents: Vec<String> = crate::kernel::content_entities(text).into_iter().collect();
+        for e in &ents {
             self.entity_msgs.entry(e.clone()).or_default().push(idx);
-            if let (Some(ol), false) = (&self.embedder, self.entity_emb.contains_key(&e)) {
-                if let Ok(v) = ol.embed(&e) {
-                    self.entity_emb.insert(e, v);
+            if let (Some(ol), false) = (&self.embedder, self.entity_emb.contains_key(e)) {
+                if let Ok(v) = ol.embed(e) {
+                    self.entity_emb.insert(e.clone(), v);
                 }
+            }
+        }
+        // Co-occurrence edges: every pair of entities in this message.
+        for i in 0..ents.len() {
+            for j in (i + 1)..ents.len() {
+                self.entity_edges.entry(ents[i].clone()).or_default().insert(ents[j].clone());
+                self.entity_edges.entry(ents[j].clone()).or_default().insert(ents[i].clone());
             }
         }
     }
@@ -375,7 +392,7 @@ impl HierarchicalTopicDriver {
     /// -> {keeping}) hangs off an orphan node and is not reached by a "drive"
     /// query, where message-level embedding would have pulled it in on the
     /// shared "gigabytes / storage" semantics.
-    fn entity_route_impl(&self, query: &str) -> Vec<usize> {
+    fn entity_route_impl(&self, query: &str, walk_edges: bool) -> Vec<usize> {
         let Some(ol) = &self.embedder else { return Vec::new() };
         if self.entity_emb.is_empty() {
             return Vec::new();
@@ -396,11 +413,32 @@ impl HierarchicalTopicDriver {
             .collect();
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-        let mut out: Vec<usize> = Vec::new();
+        // Resolve to the top nodes above the floor, then optionally walk one
+        // co-occurrence hop from each so a "budget" query that lands on the
+        // "budgeted" node also reaches whatever co-occurred with it.
+        let mut nodes: Vec<String> = Vec::new();
         for (s, name) in scored.into_iter().take(6) {
             if s < 0.55 {
                 break; // below the resolution floor: unrelated entity
             }
+            nodes.push(name.clone());
+        }
+        if walk_edges {
+            let mut frontier: Vec<String> = Vec::new();
+            for n in &nodes {
+                if let Some(nbrs) = self.entity_edges.get(n) {
+                    for nb in nbrs {
+                        if !nodes.contains(nb) && !frontier.contains(nb) {
+                            frontier.push(nb.clone());
+                        }
+                    }
+                }
+            }
+            nodes.extend(frontier);
+        }
+
+        let mut out: Vec<usize> = Vec::new();
+        for name in &nodes {
             if let Some(ids) = self.entity_msgs.get(name) {
                 for &i in ids {
                     if !out.contains(&i) {
@@ -582,8 +620,8 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
         self.route_cfg.max_load = n.max(1);
     }
 
-    fn entity_route(&self, query: &str) -> Vec<usize> {
-        self.entity_route_impl(query)
+    fn entity_route(&self, query: &str, walk_edges: bool) -> Vec<usize> {
+        self.entity_route_impl(query, walk_edges)
     }
 
     fn semantic_neighbors(&self, embedding: &[f32], k: usize) -> Vec<usize> {

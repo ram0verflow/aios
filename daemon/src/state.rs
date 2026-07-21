@@ -172,6 +172,11 @@ pub struct Settings {
     /// Base retrieval by the entity graph instead of the lexical route (#14):
     /// resolve the query's entities to nodes and load their messages.
     pub entity_routing: bool,
+    /// Walk one co-occurrence hop on the entity route (#15).
+    pub entity_edges: bool,
+    /// Require the model to attribute each same-unit quantity to its entity
+    /// before computing (mitigation for the conflation bug, #24).
+    pub attribute_before_compute: bool,
 }
 
 impl Default for Settings {
@@ -195,6 +200,8 @@ impl Default for Settings {
             fault_semantic_expansion: true,
             fault_scope_entities: false,
             entity_routing: false,
+            entity_edges: false,
+            attribute_before_compute: false,
         }
     }
 }

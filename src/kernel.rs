@@ -84,6 +84,8 @@ pub struct Kernel {
     identity: String,
     /// When true, base retrieval unions in the entity-graph route (#14).
     entity_routing: bool,
+    /// When true, the entity route also walks one co-occurrence hop (#15).
+    entity_edges: bool,
     /// Optional per-turn block of store content (topic summaries and
     /// current facts) to page in alongside the driver's messages. Empty
     /// means the store stays out of the prompt, which was the only
@@ -93,7 +95,7 @@ pub struct Kernel {
 
 impl Kernel {
     pub fn new(ollama: Ollama, config: KernelConfig) -> Self {
-        Kernel { config, ollama, kv: None, drivers: Vec::new(), identity: String::new(), entity_routing: false, store_block: String::new() }
+        Kernel { config, ollama, kv: None, drivers: Vec::new(), identity: String::new(), entity_routing: false, entity_edges: false, store_block: String::new() }
     }
 
     /// Mount the KV-paging inference backend.
@@ -141,6 +143,11 @@ impl Kernel {
         self.entity_routing = on;
     }
 
+    /// Toggle one-hop co-occurrence edge walking on the entity route.
+    pub fn set_entity_edges(&mut self, on: bool) {
+        self.entity_edges = on;
+    }
+
     /// Set (or clear, with "") the store content paged in for the next turn.
     pub fn set_store_block(&mut self, block: &str) {
         self.store_block = block.to_string();
@@ -168,7 +175,7 @@ impl Kernel {
         // route only when the graph resolves nothing, so unrelated queries
         // still work.
         let indices = if self.entity_routing {
-            let e = driver.entity_route(topic);
+            let e = driver.entity_route(topic, self.entity_edges);
             if e.is_empty() { driver.route_query(topic, &embedding) } else { e }
         } else {
             driver.route_query(topic, &embedding)
