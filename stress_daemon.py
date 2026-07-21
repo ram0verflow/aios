@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compaction stress test against a live aios daemon.
+"""Compaction stress test against a live continuum daemon.
 
 Measures three things separately, because they are different claims:
 
@@ -15,10 +15,10 @@ Measures three things separately, because they are different claims:
      must be the new value, not the old), and two probes ask for things
      never said (the answer must not be a confident wrong fact).
 
-State is whatever daemon it points at; run with AIOS_HOME somewhere
+State is whatever daemon it points at; run with CONTINUUM_HOME somewhere
 disposable to keep real memory out of it:
 
-  AIOS_HOME=/tmp/aios-stress ./target/release/aios-daemon --port 4311 &
+  CONTINUUM_HOME=/tmp/continuum-stress ./target/release/continuumd --port 4311 &
   python3 stress_daemon.py 4311
 """
 

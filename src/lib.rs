@@ -1,6 +1,6 @@
-//! AIOS, a Memory Operating System kernel for LLMs.
+//! Continuum, a Memory Operating System kernel for LLMs.
 //!
-//! Library root. The Rust realization of the AIOS Architecture Spec: a
+//! Library root. The Rust realization of the Continuum Architecture Spec: a
 //! domain-agnostic [`kernel`] over pluggable [`driver`]s (VFS volumes), backed
 //! by a versioned four-level [`store`] and a demotion-based [`eviction`] policy.
 

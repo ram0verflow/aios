@@ -1,4 +1,4 @@
-//! AIOS, a Memory Operating System kernel for LLMs.
+//! Continuum, a Memory Operating System kernel for LLMs.
 //!
 //! `main` is a small demo/inspection CLI. The real surface is the library
 //! modules (kernel, drivers, store, eviction) and the `eval` binary.
@@ -6,11 +6,11 @@
 use std::env;
 use std::io::{BufRead, Write};
 
-use aios::eviction::ContextWindow;
-use aios::hierarchical::HierarchicalTopicDriver;
-use aios::kernel::{Kernel, KernelConfig};
-use aios::ollama::{ChatMessage, Ollama};
-use aios::store::MemoryStore;
+use continuum::eviction::ContextWindow;
+use continuum::hierarchical::HierarchicalTopicDriver;
+use continuum::kernel::{Kernel, KernelConfig};
+use continuum::ollama::{ChatMessage, Ollama};
+use continuum::store::MemoryStore;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -24,16 +24,16 @@ fn main() {
         "serve" => {
             let port = flag_value(&args, "--port").and_then(|v| v.parse().ok()).unwrap_or(3210);
             let model = flag_value(&args, "--model").unwrap_or_else(|| "llama3.1:8b".to_string());
-            aios::server::run(port, &model);
+            continuum::server::run(port, &model);
         }
         "daemon" => {
             // The daemon lives in its own crate so this library stays
             // dependency-free and embeddable.
             eprintln!("the daemon is its own binary:");
-            eprintln!("  cargo run --release -p aios-daemon    # http://localhost:4310, state in ~/.aios/");
+            eprintln!("  cargo run --release -p continuumd    # http://localhost:4310, state in ~/.continuum/");
         }
         _ => {
-            eprintln!("usage: aios [info | tree <conv.json> | ask <question> | chat [--kv] | serve [--port P] [--model M] | daemon]");
+            eprintln!("usage: continuum [info | tree <conv.json> | ask <question> | chat [--kv] | serve [--port P] [--model M] | daemon]");
         }
     }
 }
@@ -55,7 +55,7 @@ fn chat(use_kv: bool) {
         serde_json::from_str(&std::fs::read_to_string(path).expect("read conv")).expect("json");
 
     let ollama = Ollama::new("llama3.1:8b", "nomic-embed-text");
-    eprintln!("[aios chat: building name embeddings…]");
+    eprintln!("[continuum chat: building name embeddings…]");
     let mut driver = HierarchicalTopicDriver::from_conv_json("/social", &data, Some(&ollama));
     driver.set_embedder(ollama.clone());
 
@@ -63,7 +63,7 @@ fn chat(use_kv: bool) {
     kernel.mount(Box::new(driver));
 
     if use_kv {
-        let server = aios::llamaserver::LlamaServer::new(8080);
+        let server = continuum::llamaserver::LlamaServer::new(8080);
         if !server.healthy() {
             eprintln!("[--kv] llama-server not reachable on :8080. Start it first:");
             eprintln!("  llama-server -m <gguf-or-ollama-blob> --port 8080 -c 8192 \\");
@@ -140,7 +140,7 @@ fn chat(use_kv: bool) {
             &mut store,
             input,
             result.response.trim(),
-            &aios::hierarchical::today_timestamp(),
+            &continuum::hierarchical::today_timestamp(),
             turn as f64,
         );
         if !wrote.is_empty() {
@@ -179,7 +179,7 @@ fn chat(use_kv: bool) {
 }
 
 fn info() {
-    println!("AIOS: Memory Operating System for LLMs (Rust kernel)");
+    println!("Continuum: Memory Operating System for LLMs (Rust kernel)");
     println!("  kernel      : domain-agnostic, page-fault loop, VFS namespaces");
     println!("  drivers     : HierarchicalTopicDriver (/social)");
     println!("  store       : 4-level hierarchy, versioned, demotion-not-deletion");
@@ -209,7 +209,7 @@ fn describe_tree(path: Option<&str>) {
 fn ask(args: &[String]) {
     let question = args.join(" ");
     if question.is_empty() {
-        eprintln!("usage: aios ask <question>");
+        eprintln!("usage: continuum ask <question>");
         return;
     }
     let path = "data/conv_0.json";

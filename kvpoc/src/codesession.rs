@@ -6,7 +6,7 @@
 //! window and show the OS keeps every fact retrievable and never fabricates.
 //!
 //! Pipeline (per-block KV `page_in`):
-//!   1. Index a synthetic codebase into symbols (aios::CodeGraphDriver).
+//!   1. Index a synthetic codebase into symbols (continuum::CodeGraphDriver).
 //!   2. Encode each symbol ONCE as a KV block (pos 0), save to disk.
 //!   3. Long session of queries. Each query:
 //!      route (BM25) -> restore top-K symbol KV blocks -> RoPE-shift + stitch
@@ -31,8 +31,8 @@ use llama_cpp_2::model::{AddBos, LlamaModel, Special};
 use llama_cpp_2::sampling::LlamaSampler;
 use llama_cpp_2::token::LlamaToken;
 
-use aios::codegraph::CodeGraphDriver;
-use aios::driver::MemoryIndexDriver;
+use continuum::codegraph::CodeGraphDriver;
+use continuum::driver::MemoryIndexDriver;
 
 const SYSTEM: &str = "You are a coding assistant with OS-managed memory. Loaded code is in [MEMORY_BLOCK] sections. \
 Answer ONLY from the loaded code. When asked what a function returns, quote the EXACT literal value from its body (e.g. the string or number), not a description. \

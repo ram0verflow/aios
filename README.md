@@ -1,4 +1,4 @@
-# aios
+# continuum
 
 An experiment in giving a local LLM long term memory by treating the context window like RAM. A small Rust kernel decides what gets paged into the window for each query, the model is trained to reply `CONTEXT_NEEDED: <topic>` when the loaded memory does not answer the question, and everything lives on disk in a versioned store so old facts get demoted rather than deleted.
 
@@ -41,7 +41,7 @@ sequenceDiagram
     D->>D: classify the exchange, write memory, append to the journal
 ```
 
-The fault idea generalizes past memory. `CONTEXT_NEEDED` asks the kernel for a different slice of the past. `WEB_NEEDED: <query>` asks the daemon to search (Brave if a key is on file, a keyless DuckDuckGo fallback otherwise). `TOOL_NEEDED: <server.tool> <json>` calls a tool from any MCP server declared in `~/.aios/mcp.json`. In every case the daemon intercepts the line before the user sees it, does the work, hands the result back as context, and the model answers for real.
+The fault idea generalizes past memory. `CONTEXT_NEEDED` asks the kernel for a different slice of the past. `WEB_NEEDED: <query>` asks the daemon to search (Brave if a key is on file, a keyless DuckDuckGo fallback otherwise). `TOOL_NEEDED: <server.tool> <json>` calls a tool from any MCP server declared in `~/.continuum/mcp.json`. In every case the daemon intercepts the line before the user sees it, does the work, hands the result back as context, and the model answers for real.
 
 The memory budget for a turn is what is left of the window after overhead and the recent session:
 
@@ -69,8 +69,8 @@ LoCoMo benchmark, 10 conversations, 1542 answerable and 444 unanswerable questio
 |---|---|---|
 | no memory attached | 1.3% | |
 | mem0 (OSS, local) | 31.0% | 80.5% |
-| aios | 54.3% | 41.7% |
-| aios + fine tune (conv 0 only) | 55.9% | 55.3% |
+| continuum | 54.3% | 41.7% |
+| continuum + fine tune (conv 0 only) | 55.9% | 55.3% |
 
 The fine tuned row is conv 0 only because the tune trained on the other nine. On that same held out conversation the untuned model gets 48.0% and refuses 25.5%, so the tune helped both numbers.
 
@@ -78,13 +78,13 @@ Caveats that matter. Mem0 reports 62 to 67% in its own publications using strong
 
 ## The daemon and the app
 
-The prototype server grew into the real shape: a long lived localhost daemon that owns the kernel, the versioned store, and an append only journal under `~/.aios/`, plus a React frontend that is a thin client of it. One user, one timeline, one memory. There are no sessions anywhere in the API or the UI, and existing `companion/` state is adopted on first boot.
+The prototype server grew into the real shape: a long lived localhost daemon that owns the kernel, the versioned store, and an append only journal under `~/.continuum/`, plus a React frontend that is a thin client of it. One user, one timeline, one memory. There are no sessions anywhere in the API or the UI, and existing `companion/` state is adopted on first boot.
 
 ```mermaid
 flowchart LR
     APP[web app] --> D
     ANY[anything that speaks http] --> D
-    subgraph daemon [aios daemon, localhost only]
+    subgraph daemon [continuum daemon, localhost only]
         D[api and sse] --> W[worker thread: kernel and eviction window]
         D --> J[(journal, jsonl)]
         W --> K[kernel]
@@ -106,7 +106,7 @@ The memory browser shows what it believes about you, topic by topic. Every value
 
 Models are swappable mid conversation from a header menu: hosted Claude models gated on whether a key is on file, any OpenAI compatible endpoint, and whatever Ollama has pulled. Continuity survives the swap because memory never lived in the model. The KV cache tier does not survive it and quietly rebuilds.
 
-Privacy modes are enforced in the daemon, not the frontend. Persistent remembers everything. Incognito talks, writes nothing, and its journal entries are purged on exit. Paused recalls freely and writes nothing. Turns can carry images, stored under `~/.aios/media/` and passed to whichever provider can see them; a text only model says it cannot see the image instead of erroring. The app does voice in both directions with no cloud: browser speech recognition in, system speech synthesis out.
+Privacy modes are enforced in the daemon, not the frontend. Persistent remembers everything. Incognito talks, writes nothing, and its journal entries are purged on exit. Paused recalls freely and writes nothing. Turns can carry images, stored under `~/.continuum/media/` and passed to whichever provider can see them; a text only model says it cannot see the image instead of erroring. The app does voice in both directions with no cloud: browser speech recognition in, system speech synthesis out.
 
 There is also a landing page and a thesis page, because the argument matters as much as the code:
 
@@ -122,26 +122,26 @@ ollama pull nomic-embed-text
 ollama serve
 
 cargo test                                # unit tests, no network needed
-cargo build --release -p aios-daemon
+cargo build --release -p continuumd
 (cd app && npm install && npm run build)  # once, for the UI
-./target/release/aios-daemon              # http://localhost:4310
+./target/release/continuumd              # http://localhost:4310
 ```
 
-Keys, all optional, live in `~/.aios/keys` as one JSON object, chmod 600, never logged, never returned by the API: `anthropic` for Claude, `openai` for OpenAI compatible endpoints, `brave` for real web search. MCP servers go in `~/.aios/mcp.json` and their tools show up on the next daemon start.
+Keys, all optional, live in `~/.continuum/keys` as one JSON object, chmod 600, never logged, never returned by the API: `anthropic` for Claude, `openai` for OpenAI compatible endpoints, `brave` for real web search. MCP servers go in `~/.continuum/mcp.json` and their tools show up on the next daemon start.
 
 The API, localhost JSON with SSE for the turn stream: `POST /v1/turn`, `POST /v1/turn/cancel`, `GET /v1/timeline`, `GET /v1/memory/search`, `GET /v1/memory/browse`, `POST /v1/memory/correct`, `POST /v1/memory/delete`, `GET/PUT /v1/settings`, `GET /v1/status`, `GET /v1/models`, `GET /v1/digest`, `GET /v1/media/<file>`, `POST /v1/kv/*`.
 
 The older single file companion still works if you want the minimal version:
 
 ```
-./target/release/aios serve --model llama3.1:8b     # http://localhost:3210
+./target/release/continuum serve --model llama3.1:8b     # http://localhost:3210
 ```
 
 For the benchmark CLI, get locomo10.json from the snap-research/locomo repo on GitHub, put it at data/locomo10.json, then:
 
 ```
-./target/release/aios ask "When did Caroline go to the LGBTQ support group?"
-./target/release/aios chat
+./target/release/continuum ask "When did Caroline go to the LGBTQ support group?"
+./target/release/continuum chat
 ```
 
 Chat with KV persistence (attention states saved to disk on exit, restored on start). Needs llama-server, which reads GGUF straight out of the Ollama blob store:
@@ -151,7 +151,7 @@ brew install llama.cpp
 BLOB=~/.ollama/models/blobs/$(ollama show llama3.1:8b --modelfile | grep -o 'sha256[^ ]*' | head -1 | tr : -)
 mkdir -p kv_slots
 llama-server -m $BLOB --port 8080 -c 8192 --slots --slot-save-path $PWD/kv_slots -np 1 &
-./target/release/aios chat --kv
+./target/release/continuum chat --kv
 ```
 
 ## Ablations, other models, a second benchmark
@@ -227,7 +227,7 @@ drops), then asks for everything back plus two things that were never
 said:
 
 ```
-AIOS_HOME=/tmp/aios-stress ./target/release/aios-daemon --port 4311
+CONTINUUM_HOME=/tmp/continuum-stress ./target/release/continuumd --port 4311
 python3 stress_daemon.py 4311
 ```
 
@@ -585,12 +585,12 @@ src/codegraph.rs     code driver: symbol extraction + BM25, no embeddings
 src/store.rs         four level versioned store
 src/eviction.rs      context window eviction and demotion
 src/llamaserver.rs   llama-server client for KV save/restore
-src/server.rs        the original single file companion (aios serve)
+src/server.rs        the original single file companion (continuum serve)
 src/bin/eval.rs      LoCoMo runner
 src/bin/stress.rs    all ten conversations merged into one store
 src/bin/transfer.rs  fine tuned model on code questions it never trained on
 kvpoc/               KV cache proofs of concept
-daemon/              aios-daemon: worker actor, journal, providers, web search, mcp client
+daemon/              continuumd: worker actor, journal, providers, web search, mcp client
 app/                 React frontend: timeline, memory browser, landing, thesis
 shots/               the screenshots above
 DESIGN.md            the product spec the daemon and app were built from

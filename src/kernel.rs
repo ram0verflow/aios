@@ -1,4 +1,4 @@
-//! The AIOS Kernel, domain-agnostic (spec §3.1).
+//! The Continuum Kernel, domain-agnostic (spec §3.1).
 //!
 //! Responsibilities, and *only* these:
 //!   - Track VRAM (token) pressure and compute a memory budget.
@@ -644,14 +644,14 @@ mod tests {
         assert!(b.details.iter().any(|d| d.current().contains("21st")));
 
         // A broad topical summary is NOT clobbered by one narrow detail.
-        store.create_branch("aios", "A memory kernel for LLMs, written in Rust, defense in August", "wb", 3.0);
+        store.create_branch("continuum", "A memory kernel for LLMs, written in Rust, defense in August", "wb", 3.0);
         let wbs = vec![WriteBack {
             kind: "DECISION".into(),
             content: "defense moved to September 1st".into(),
-            branch: "aios".into(),
+            branch: "continuum".into(),
         }];
         Kernel::apply_write_backs(&mut store, &wbs, 4.0);
-        assert!(store.get_branch("aios").unwrap().summary.current().contains("memory kernel"));
+        assert!(store.get_branch("continuum").unwrap().summary.current().contains("memory kernel"));
     }
 
     #[test]

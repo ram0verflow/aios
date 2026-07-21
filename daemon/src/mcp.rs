@@ -1,6 +1,6 @@
 //! A minimal MCP client (stdio transport, newline-delimited JSON-RPC 2.0).
 //!
-//! Servers are declared in ~/.aios/mcp.json:
+//! Servers are declared in ~/.continuum/mcp.json:
 //!   { "servers": { "files": { "command": "npx",
 //!                             "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"] } } }
 //!
@@ -69,7 +69,7 @@ impl McpServer {
             json!({
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "aios-daemon", "version": "0.1.0"}
+                "clientInfo": {"name": "continuumd", "version": "0.1.0"}
             }),
         )?;
         server.notify("notifications/initialized", json!({}))?;
@@ -143,7 +143,7 @@ impl Drop for McpServer {
     }
 }
 
-/// Boot every server declared in ~/.aios/mcp.json. Failures are logged and
+/// Boot every server declared in ~/.continuum/mcp.json. Failures are logged and
 /// skipped; a bad server must never take the daemon down.
 pub fn start_all(config_path: &str) -> Vec<McpServer> {
     let Ok(raw) = std::fs::read_to_string(config_path) else { return Vec::new() };

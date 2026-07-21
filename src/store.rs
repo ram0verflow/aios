@@ -1,6 +1,6 @@
-//! AIOS Memory Store, the "disk" in the OS analogy.
+//! Continuum Memory Store, the "disk" in the OS analogy.
 //!
-//! Four-level hierarchy with temporal versioning, ported from `aios/store.py`:
+//! Four-level hierarchy with temporal versioning, ported from `continuum/store.py`:
 //!   Level 0: Identity , who the user is, always loaded
 //!   Level 1: Branches , topic summaries, the routing layer
 //!   Level 2: Details  , specific facts per branch

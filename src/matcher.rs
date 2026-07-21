@@ -1,4 +1,4 @@
-//! TF-IDF branch matcher, "the TLB" (ported from `aios/matcher.py`).
+//! TF-IDF branch matcher, "the TLB" (ported from `continuum/matcher.py`).
 //!
 //! No LLM, no embeddings. Each branch builds a term-frequency profile from its
 //! name (3x weight), tags (2x), summary, and details. Queries match via cosine

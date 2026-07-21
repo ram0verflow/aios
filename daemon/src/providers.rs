@@ -1,5 +1,5 @@
 //! Provider adapters: one trait, provider-independent message schema
-//! (`aios::ollama::ChatMessage` — role + content), streaming via callback,
+//! (`continuum::ollama::ChatMessage` — role + content), streaming via callback,
 //! cooperative cancellation.
 //!
 //! Model switching preserves continuity by construction: memory never lives
@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::{json, Value};
 
-use aios::ollama::ChatMessage;
+use continuum::ollama::ChatMessage;
 
 use crate::state::{Keys, Settings};
 
@@ -58,7 +58,7 @@ pub fn build(settings: &Settings, keys: &Keys) -> Result<Box<dyn Provider>, Stri
         "claude" => {
             let key = keys
                 .get("anthropic")
-                .ok_or("no Anthropic key: put {\"anthropic\": \"sk-...\"} in ~/.aios/keys or set ANTHROPIC_API_KEY")?;
+                .ok_or("no Anthropic key: put {\"anthropic\": \"sk-...\"} in ~/.continuum/keys or set ANTHROPIC_API_KEY")?;
             Ok(Box::new(ClaudeProvider { model: settings.model.clone(), api_key: key.to_string() }))
         }
         "openai_compat" => Ok(Box::new(OpenAICompatProvider {
@@ -407,7 +407,7 @@ impl Provider for LlamaServerProvider {
         if cancelled(cancel) {
             return Ok(String::new());
         }
-        let server = aios::llamaserver::LlamaServer::new(self.port);
+        let server = continuum::llamaserver::LlamaServer::new(self.port);
         let full = server.chat(messages, max_tokens)?;
         if !cancelled(cancel) {
             on_token(&full);

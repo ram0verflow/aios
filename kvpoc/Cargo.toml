@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 llama-cpp-2 = "0.1"
 serde_json = "1"
-aios = { path = ".." }
+continuum = { path = ".." }
 
 [[bin]]
 name = "kvpoc"

@@ -16,7 +16,7 @@ whether the one pass was luck.
 Protocol matches stress_discriminate.py: same interleaving, same gaps, same
 grader, per answer attribution logged.
 
-  AIOS_HOME=/tmp/aios-disj ./target/release/aios-daemon --port 4317 &
+  CONTINUUM_HOME=/tmp/continuum-disj ./target/release/continuumd --port 4317 &
   python3 stress_disjoint.py 4317 off
   python3 stress_disjoint.py 4317 on     # fresh state first
 """

@@ -1,5 +1,5 @@
 //! Web search for the WEB_NEEDED fault. Brave's JSON API when a key is on
-//! file ({"brave": "..."} in ~/.aios/keys), otherwise a keyless DuckDuckGo
+//! file ({"brave": "..."} in ~/.continuum/keys), otherwise a keyless DuckDuckGo
 //! HTML fallback. Results are handed back to the model as a plain text
 //! block; the daemon never follows links itself.
 
@@ -66,7 +66,7 @@ fn brave(query: &str, key: &str) -> Result<Vec<Hit>, String> {
 fn ddg(query: &str) -> Result<Vec<Hit>, String> {
     let resp = ureq::post("https://html.duckduckgo.com/html/")
         .set("Content-Type", "application/x-www-form-urlencoded")
-        .set("User-Agent", "Mozilla/5.0 (Macintosh) aios-daemon")
+        .set("User-Agent", "Mozilla/5.0 (Macintosh) continuumd")
         .timeout(std::time::Duration::from_secs(10))
         .send_string(&format!("q={}", urlencode(query)))
         .map_err(|e| format!("ddg: {e}"))?;

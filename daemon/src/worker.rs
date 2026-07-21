@@ -9,11 +9,11 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use aios::eviction::ContextWindow;
-use aios::hierarchical::{today_timestamp, HierarchicalTopicDriver};
-use aios::kernel::{detect_page_fault, Kernel, KernelConfig};
-use aios::llamaserver::LlamaServer;
-use aios::ollama::{ChatMessage, Ollama};
+use continuum::eviction::ContextWindow;
+use continuum::hierarchical::{today_timestamp, HierarchicalTopicDriver};
+use continuum::kernel::{detect_page_fault, Kernel, KernelConfig};
+use continuum::llamaserver::LlamaServer;
+use continuum::ollama::{ChatMessage, Ollama};
 
 use crate::mcp::{self, McpServer};
 use crate::providers;
@@ -96,7 +96,7 @@ fn protocol_request(reply: &str, prefix: &str) -> Option<String> {
 /// Extracted so the dedup behaviour has a direct regression test.
 pub(crate) fn fault_already_asked(asked: &[String], topic: &str) -> bool {
     asked.iter().any(|t| {
-        aios::kernel::token_overlap_pct(topic, t) >= 80 || aios::kernel::token_overlap_pct(t, topic) >= 80
+        continuum::kernel::token_overlap_pct(topic, t) >= 80 || continuum::kernel::token_overlap_pct(t, topic) >= 80
     })
 }
 
@@ -123,7 +123,7 @@ struct Worker {
     local_model: String,
     embed_model: String,
     turns_served: u64,
-    /// Connected MCP servers (from ~/.aios/mcp.json), tools and all.
+    /// Connected MCP servers (from ~/.continuum/mcp.json), tools and all.
     mcp: Vec<McpServer>,
 }
 
@@ -247,7 +247,7 @@ impl Worker {
     /// actually do right now: web search, MCP tools.
     fn build_template(&self, s: &Settings) -> String {
         if s.model.starts_with("aios-ft") {
-            return aios::kernel::SYSTEM_TEMPLATE.to_string();
+            return continuum::kernel::SYSTEM_TEMPLATE.to_string();
         }
         let mut t = COMPANION_TEMPLATE.to_string();
         let mut actions = String::new();
@@ -666,12 +666,12 @@ impl Worker {
     /// memory_model = "answer" the active provider classifies instead —
     /// a frontier model beats any amount of chain-of-thought coaxing on an
     /// 8B here, at the cost of the exchange leaving the machine twice.
-    fn classify(&self, s: &Settings, provider: &dyn providers::Provider, user: &str, reply: &str) -> Vec<aios::kernel::WriteBack> {
+    fn classify(&self, s: &Settings, provider: &dyn providers::Provider, user: &str, reply: &str) -> Vec<continuum::kernel::WriteBack> {
         let store = self.shared.store.lock().unwrap();
         if s.memory_model == "answer" && s.provider != "ollama" {
             let branches = serde_json::to_string(&store.list_branches()).unwrap_or_else(|_| "[]".into());
             drop(store);
-            let prompt = aios::kernel::WRITEBACK_PROMPT
+            let prompt = continuum::kernel::WRITEBACK_PROMPT
                 .replace("{branches}", &branches)
                 .replace("{user_msg}", user)
                 .replace("{response}", reply);
@@ -681,7 +681,7 @@ impl Worker {
             ];
             let never = AtomicBool::new(false);
             match provider.chat_stream(&msgs, 300, 0.0, &mut |_| {}, &never) {
-                Ok(raw) => aios::kernel::parse_write_backs(&raw),
+                Ok(raw) => continuum::kernel::parse_write_backs(&raw),
                 Err(_) => Vec::new(),
             }
         } else {

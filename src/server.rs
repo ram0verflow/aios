@@ -1,4 +1,4 @@
-//! `aios serve`: the companion as a local web app.
+//! `continuum serve`: the companion as a local web app.
 //!
 //! A small blocking HTTP server, localhost only, serving an embedded single
 //! file UI plus a JSON API. No frameworks on either side. The UI is a chat

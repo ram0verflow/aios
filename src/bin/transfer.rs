@@ -12,11 +12,11 @@
 //!
 //! Usage: transfer [--model M]
 
-use aios::codegraph::CodeGraphDriver;
-use aios::driver::MemoryIndexDriver;
-use aios::kernel::{detect_page_fault, Kernel, KernelConfig};
-use aios::llamaserver::LlamaServer;
-use aios::ollama::{ChatMessage, Ollama};
+use continuum::codegraph::CodeGraphDriver;
+use continuum::driver::MemoryIndexDriver;
+use continuum::kernel::{detect_page_fault, Kernel, KernelConfig};
+use continuum::llamaserver::LlamaServer;
+use continuum::ollama::{ChatMessage, Ollama};
 
 fn main() {
     let mut model = "aios-ft-r2-full".to_string();
@@ -64,7 +64,7 @@ fn main() {
 
     // We drive the driver + prompt directly (kernel.query embeds for /social
     // routing; /workspace is BM25-only, so we assemble here and call the model).
-    let system_tmpl = aios::kernel::SYSTEM_TEMPLATE;
+    let system_tmpl = continuum::kernel::SYSTEM_TEMPLATE;
     let (mut ans_ok, mut ans_total, mut fault_ok, mut fault_total) = (0, 0, 0, 0);
 
     for (q, answerable) in cases {

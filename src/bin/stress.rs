@@ -14,11 +14,11 @@
 
 use std::time::Instant;
 
-use aios::driver::{MemoryIndexDriver, Message};
-use aios::hierarchical::HierarchicalTopicDriver;
-use aios::kernel::{Kernel, KernelConfig};
-use aios::metrics::{judge, rouge_l, rouge_n};
-use aios::ollama::Ollama;
+use continuum::driver::{MemoryIndexDriver, Message};
+use continuum::hierarchical::HierarchicalTopicDriver;
+use continuum::kernel::{Kernel, KernelConfig};
+use continuum::metrics::{judge, rouge_l, rouge_n};
+use continuum::ollama::Ollama;
 
 fn main() {
     let mut mode = "preload".to_string();

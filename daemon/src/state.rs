@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use aios::store::MemoryStore;
+use continuum::store::MemoryStore;
 
 use crate::journal::Journal;
 
@@ -37,25 +37,39 @@ pub fn now_ms() -> u64 {
 // --- Paths -----------------------------------------------------------------
 
 #[derive(Clone)]
-pub struct AiosDirs {
+pub struct ContinuumDirs {
     pub root: PathBuf,
 }
 
-impl AiosDirs {
-    /// `~/.aios/` (or `$AIOS_HOME`), created on first run. The override
+impl ContinuumDirs {
+    /// `~/.continuum/` (or `$CONTINUUM_HOME`), created on first run. The override
     /// exists so stress runs and tests get their own state instead of
-    /// writing into the real memory. Key file permissions are the caller's
-    /// job (we only ever read keys).
+    /// writing into the real memory. `AIOS_HOME` is honoured as a fallback so
+    /// scripts written before the rename keep working. Key file permissions
+    /// are the caller's job (we only ever read keys).
     pub fn create() -> Self {
-        let root = match std::env::var("AIOS_HOME") {
-            Ok(p) if !p.is_empty() => PathBuf::from(p),
-            _ => {
-                let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-                PathBuf::from(home).join(".aios")
+        let override_dir = std::env::var("CONTINUUM_HOME")
+            .or_else(|_| std::env::var("AIOS_HOME"))
+            .ok()
+            .filter(|p| !p.is_empty());
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        let root = match override_dir {
+            Some(p) => PathBuf::from(p),
+            None => {
+                // Project renamed aios -> continuum: adopt a pre-rename
+                // ~/.aios once, so an existing install keeps its memory.
+                let new = PathBuf::from(&home).join(".continuum");
+                let old = PathBuf::from(&home).join(".aios");
+                if !new.exists() && old.exists() {
+                    if std::fs::rename(&old, &new).is_ok() {
+                        eprintln!("[migrate] adopted ~/.aios -> ~/.continuum");
+                    }
+                }
+                new
             }
         };
         std::fs::create_dir_all(root.join("journal")).ok();
-        AiosDirs { root }
+        ContinuumDirs { root }
     }
 
     pub fn store_path(&self) -> String {
@@ -83,9 +97,9 @@ impl AiosDirs {
     }
 }
 
-/// `aios serve` users' companion/ state loads unchanged: if the daemon has
+/// `continuum serve` users' companion/ state loads unchanged: if the daemon has
 /// no store yet and a companion/ directory is present in the cwd, adopt it.
-pub fn migrate_from_companion(dirs: &AiosDirs) {
+pub fn migrate_from_companion(dirs: &ContinuumDirs) {
     let store_dst = dirs.store_path();
     if std::path::Path::new(&store_dst).exists() {
         return;
@@ -177,14 +191,14 @@ impl Default for Settings {
 }
 
 impl Settings {
-    pub fn load(dirs: &AiosDirs) -> Self {
+    pub fn load(dirs: &ContinuumDirs) -> Self {
         std::fs::read_to_string(dirs.settings_path())
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default()
     }
 
-    pub fn save(&self, dirs: &AiosDirs) {
+    pub fn save(&self, dirs: &ContinuumDirs) {
         if let Ok(s) = serde_json::to_string_pretty(self) {
             std::fs::write(dirs.settings_path(), s).ok();
         }
@@ -193,7 +207,7 @@ impl Settings {
 
 // --- Keys ---------------------------------------------------------------------
 
-/// Provider API keys. Read from `~/.aios/keys` (a JSON object like
+/// Provider API keys. Read from `~/.continuum/keys` (a JSON object like
 /// {"anthropic": "sk-...", "openai": "..."}) with env-var fallback.
 /// Never serialized back out, never logged, never returned over the API.
 pub struct Keys {
@@ -201,7 +215,7 @@ pub struct Keys {
 }
 
 impl Keys {
-    pub fn load(dirs: &AiosDirs) -> Self {
+    pub fn load(dirs: &ContinuumDirs) -> Self {
         let mut map: HashMap<String, String> = std::fs::read_to_string(dirs.keys_path())
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -257,7 +271,7 @@ pub struct Shared {
     pub settings: Mutex<Settings>,
     pub journal: Mutex<Journal>,
     pub store: Mutex<MemoryStore>,
-    pub dirs: AiosDirs,
+    pub dirs: ContinuumDirs,
     pub ui_dir: String,
     pub cancels: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     pub turn_counter: AtomicU64,

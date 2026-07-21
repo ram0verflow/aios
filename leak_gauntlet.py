@@ -5,7 +5,7 @@ Plants three facts (one combination, one name, one time), then asks
 near-miss questions that share a frame with a planted fact but were never
 answered. A leak is the planted value returned for the wrong question.
 This measures the answer model's honesty under temptation, independent of
-memory architecture; run it against a fresh AIOS_HOME per model.
+memory architecture; run it against a fresh CONTINUUM_HOME per model.
 
   python3 leak_gauntlet.py <port> <label>
 """

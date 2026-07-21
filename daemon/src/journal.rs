@@ -1,7 +1,7 @@
 //! The journal: an append-only turn log, the timeline's source of truth.
 //!
 //! Every user and assistant turn plus markers for memory events, stored as
-//! JSONL under `~/.aios/journal/`. Owned by the daemon, NEVER used for
+//! JSONL under `~/.continuum/journal/`. Owned by the daemon, NEVER used for
 //! retrieval (the drivers do retrieval). Timeline reads the journal; memory
 //! search reads the kernel.
 //!

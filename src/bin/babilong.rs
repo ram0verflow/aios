@@ -11,10 +11,10 @@
 
 use std::time::Instant;
 
-use aios::driver::{Message, MemoryIndexDriver};
-use aios::hierarchical::HierarchicalTopicDriver;
-use aios::kernel::{Kernel, KernelConfig};
-use aios::ollama::Ollama;
+use continuum::driver::{Message, MemoryIndexDriver};
+use continuum::hierarchical::HierarchicalTopicDriver;
+use continuum::kernel::{Kernel, KernelConfig};
+use continuum::ollama::Ollama;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

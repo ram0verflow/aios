@@ -1,4 +1,4 @@
-//! ROUGE evaluation of the AIOS kernel on the LoCoMo benchmark.
+//! ROUGE evaluation of the Continuum kernel on the LoCoMo benchmark.
 //!
 //! For each QA pair in a LoCoMo conversation we:
 //!   1. route the question through the `HierarchicalTopicDriver`,
@@ -13,10 +13,10 @@
 
 use std::time::Instant;
 
-use aios::driver::MemoryIndexDriver;
-use aios::hierarchical::HierarchicalTopicDriver;
-use aios::kernel::{detect_page_fault, Kernel, KernelConfig};
-use aios::ollama::{ChatMessage, Ollama};
+use continuum::driver::MemoryIndexDriver;
+use continuum::hierarchical::HierarchicalTopicDriver;
+use continuum::kernel::{detect_page_fault, Kernel, KernelConfig};
+use continuum::ollama::{ChatMessage, Ollama};
 
 /// LLM-as-judge: does the prediction convey the gold answer? The field norm
 /// for LoCoMo (raw ROUGE against terse golds punishes correct sentence-length
@@ -86,7 +86,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    eprintln!("=== AIOS ROUGE eval ===");
+    eprintln!("=== Continuum ROUGE eval ===");
     eprintln!("conv {conv_idx} ({sample_id}), model {model}, {} QA pairs available", qa.len());
     let t0 = Instant::now();
     // Conv 0 has a prebuilt (Claude-partitioned) tree; other convs are built
@@ -327,7 +327,7 @@ fn main() {
     }
 
     let elapsed = run_start.elapsed().as_secs_f32();
-    println!("\n================= AIOS ROUGE RESULTS =================");
+    println!("\n================= Continuum ROUGE RESULTS =================");
     println!("conv {conv_idx} ({sample_id}) | model {model} | scored {n} QA in {elapsed:.0}s");
     println!("-----------------------------------------------------");
     println!("ROUGE-1 F1 (mean): {:.4}", sum_r1 / n.max(1) as f64);

@@ -1,4 +1,4 @@
-//! Context window & eviction, "the RAM" (ported from `aios/eviction.py`).
+//! Context window & eviction, "the RAM" (ported from `continuum/eviction.py`).
 //!
 //! Fixed-size. When it fills, items are **demoted**, not deleted (spec §1.1):
 //! session messages get archived, details/summaries are simply unloaded (they

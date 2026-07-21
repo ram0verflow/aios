@@ -13,9 +13,9 @@ message retrieval already wins. These cases don't live in one message:
                  answer a question nobody stated
 
 Run once with store_context off and once with on (the script sets it),
-fresh AIOS_HOME each time, and compare:
+fresh CONTINUUM_HOME each time, and compare:
 
-  AIOS_HOME=/tmp/aios-disc ./target/release/aios-daemon --port 4316 &
+  CONTINUUM_HOME=/tmp/continuum-disc ./target/release/continuumd --port 4316 &
   python3 stress_discriminate.py 4316 off
   python3 stress_discriminate.py 4316 on     # fresh state again first
 """

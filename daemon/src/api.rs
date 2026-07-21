@@ -12,7 +12,7 @@ use std::sync::{mpsc, Arc};
 
 use serde_json::{json, Value};
 
-use aios::http::find_subslice;
+use continuum::http::find_subslice;
 
 use crate::state::{now_ms, now_ts, Req, Settings, Shared, MODE_INCOGNITO, MODE_PAUSED, MODE_PERSISTENT};
 
@@ -114,7 +114,7 @@ fn turn_sse(stream: &mut TcpStream, shared: &Arc<Shared>, body: &str) {
     shared.cancels.lock().unwrap().remove(&id);
 }
 
-/// Persist attached data:-URL images under ~/.aios/media; returns filenames.
+/// Persist attached data:-URL images under ~/.continuum/media; returns filenames.
 fn save_media(shared: &Arc<Shared>, images: &[String]) -> Vec<String> {
     use base64::Engine;
     let mut out = Vec::new();
@@ -258,7 +258,7 @@ fn memory_search(shared: &Arc<Shared>, query: &HashMap<String, String>) -> (&'st
     }
 }
 
-fn versions_json(vv: &aios::store::VersionedValue) -> Value {
+fn versions_json(vv: &continuum::store::VersionedValue) -> Value {
     json!({
         "current": vv.current(),
         "last_updated": vv.last_updated(),
@@ -357,7 +357,7 @@ fn memory_delete(shared: &Arc<Shared>, body: &str) -> (&'static str, Value) {
             }
             _ => false,
         },
-        "branch" => store.branches.remove(&aios::store::to_key(branch)).is_some(),
+        "branch" => store.branches.remove(&continuum::store::to_key(branch)).is_some(),
         "identity" => {
             store.identity = Default::default();
             true
@@ -461,7 +461,7 @@ fn models(shared: &Arc<Shared>) -> Value {
             }
         }
     }
-    let llama_up = aios::llamaserver::LlamaServer::new(8080).healthy();
+    let llama_up = continuum::llamaserver::LlamaServer::new(8080).healthy();
     self_hosted.push(json!({
         "provider": "llamaserver", "model": "llama-server", "label": "llama-server",
         "note": "attention-state paging to disk", "available": llama_up,
@@ -516,7 +516,7 @@ fn kv(shared: &Arc<Shared>, save: bool) -> (&'static str, Value) {
 
 // --- Static UI ------------------------------------------------------------------------
 
-/// Attached images, straight off ~/.aios/media.
+/// Attached images, straight off ~/.continuum/media.
 fn serve_media(stream: &mut TcpStream, shared: &Arc<Shared>, path: &str) {
     let name = path.trim_start_matches("/v1/media/");
     if name.contains('/') || name.contains("..") {
@@ -578,7 +578,7 @@ fn serve_static(stream: &mut TcpStream, shared: &Arc<Shared>, path: &str) {
             let _ = stream.write_all(&bytes);
         }
         Err(_) => {
-            let msg = "aios daemon is running. No UI build found — run `npm run build` in app/, \
+            let msg = "continuum daemon is running. No UI build found — run `npm run build` in app/, \
                        or use the dev server (`npm run dev` in app/).";
             let _ = write!(
                 stream,

@@ -1,4 +1,4 @@
-//! `aios-daemon`: the long-lived localhost service that owns the kernel, the
+//! `continuumd`: the long-lived localhost service that owns the kernel, the
 //! store, the journal, and all provider connections. The desktop app, a CLI,
 //! a VS Code extension, and a browser extension are all thin clients of the
 //! same memory.
@@ -21,14 +21,14 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
-use aios::store::MemoryStore;
+use continuum::store::MemoryStore;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let port: u16 = flag(&args, "--port").and_then(|v| v.parse().ok()).unwrap_or(4310);
     let ui_dir = flag(&args, "--ui").unwrap_or_else(|| "app/dist".to_string());
 
-    let dirs = state::AiosDirs::create();
+    let dirs = state::ContinuumDirs::create();
     state::migrate_from_companion(&dirs);
 
     let settings = state::Settings::load(&dirs);
@@ -58,7 +58,7 @@ fn main() {
         eprintln!("cannot bind 127.0.0.1:{port}: {e}");
         std::process::exit(1);
     });
-    println!("aios daemon up: http://localhost:{port}  (state in ~/.aios/)");
+    println!("continuumd up: http://localhost:{port}  (state in ~/.continuum/)");
 
     for stream in listener.incoming().flatten() {
         let shared = shared.clone();
