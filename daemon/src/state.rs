@@ -165,6 +165,10 @@ pub struct Settings {
     /// (gate bypassed). Exists because the model names gaps in its own
     /// vocabulary and lexical routing searches the user's.
     pub fault_semantic_expansion: bool,
+    /// Gate that expansion by shared content entity (the cheap lexical form
+    /// of the graph in #14). Probe knob: does it stop the drive/storage
+    /// bleed without also killing the eng-headcount fix.
+    pub fault_scope_entities: bool,
 }
 
 impl Default for Settings {
@@ -186,6 +190,7 @@ impl Default for Settings {
             web_enabled: true,
             store_context: false,
             fault_semantic_expansion: true,
+            fault_scope_entities: false,
         }
     }
 }

@@ -395,7 +395,7 @@ impl Worker {
                 self.send(events, json!({"t": "fault", "topic": topic}));
                 fault_topics_asked.push(topic.clone());
                 let paged = if s.fault_semantic_expansion {
-                    self.kernel.fault_block_semantic(&topic, meta.memory_budget_tokens)
+                    self.kernel.fault_block_semantic(&topic, meta.memory_budget_tokens, s.fault_scope_entities)
                 } else {
                     self.kernel.fault_block(&topic, meta.memory_budget_tokens)
                 };
