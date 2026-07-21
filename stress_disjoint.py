@@ -25,7 +25,7 @@ import json
 import sys
 import urllib.request
 
-from grading import verdict
+from judge import verdict as judge_verdict
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 4310
 MODE = sys.argv[2] if len(sys.argv) > 2 else "off"
@@ -40,60 +40,60 @@ CASES = [
         "a": "My API plan allows 50 thousand requests per month.",
         "b": "I've burned through about 62 thousand calls already.",
         "q": "am I over my monthly API allowance?",
-        "needles": ["12 thousand", "12,000", "12000", "exceeded"],
+        "truth": "over the allowance by 12,000 (62k used vs 50k plan)",
     },
     {
         "name": "flat affordability",
         "a": "The new flat is 2200 a month.",
         "b": "My take home pay works out to 2600.",
         "q": "can I afford the new flat?",
-        "needles": ["400"],
+        "truth": "yes, affordable, 400 to spare (2600 pay minus 2200 rent)",
     },
     {
         "name": "drive capacity",
         "a": "The external drive holds 500 gigabytes.",
         "b": "My photo library weighs in at 620 gigabytes.",
         "q": "will the backup fit on the drive?",
-        "needles": ["120", "will not fit", "won't fit", "too large", "not enough"],
+        "truth": "no, will NOT fit (620 library exceeds 500 drive)",
     },
     {
         "name": "grant deadline",
         "a": "The grant deadline is March 10th.",
         "b": "I get back from Tokyo on March 8th.",
         "q": "how long after I land is the grant due?",
-        "needles": ["2 days", "two days"],
+        "truth": "2 days after landing (grant Mar 10, land Mar 8)",
     },
     {
         "name": "eng headcount",
         "a": "We budgeted for 12 engineers this year.",
         "b": "There are 15 people on the platform team now.",
         "q": "are we over the engineering hiring budget?",
-        # "over the engineering hiring budget" as an adjacent phrase is safe:
-        # a hedge would restate the question but verdict() also rejects punts.
-        # This case produced the grader's first false NEGATIVE (a correct
-        # "you are over the engineering hiring budget" graded FAIL).
-        "needles": ["3", "exceeded", "over the engineering hiring budget", "over budget"],
+        "truth": "yes, over budget by 3 (15 people vs 12 budgeted)",
     },
     {
         "name": "laptop battery",
         "a": "The flight to Berlin is 9 hours.",
         "b": "This laptop runs about 6 hours on a charge.",
-        "q": "can I work the whole way to Berlin without a power outlet?",
-        "needles": ["3", "will not", "won't", "not enough", "no"],
+        # Rewritten from "can I work... without an outlet?" which invited
+        # advice ("bring a charger") rather than a verdict. Now demands a
+        # number. Still disjoint: the question says "battery", fact_b says
+        # "laptop / charge", zero lexical overlap.
+        "q": "will my battery cover the entire Berlin flight, and if not, by how much does it fall short?",
+        "truth": "no, it does NOT cover the flight; short by 3 hours (6h battery vs 9h flight)",
     },
     {
         "name": "gift budget",
         "a": "I set aside 300 for presents this year.",
         "b": "The wedding one cost 180 and the birthday one 140.",
         "q": "am I still inside what I set aside for presents?",
-        "needles": ["20", "320", "exceeded"],
+        "truth": "no, OVER by 20 (320 spent vs 300 set aside)",
     },
     {
         "name": "storage tier",
         "a": "The basic tier caps at 100 gigabytes.",
         "b": "I'm currently keeping 140 gigabytes up there.",
         "q": "do I need to move off the basic tier?",
-        "needles": ["40", "yes", "exceeded"],
+        "truth": "yes, must move off basic tier (140 used exceeds 100 cap)",
     },
 ]
 
@@ -167,7 +167,7 @@ def main():
     for c in CASES:
         reply, done = turn(c["q"])
         insp = (done or {}).get("inspector", {})
-        ok = verdict(reply, c["needles"])
+        ok = judge_verdict(c["q"], c["truth"], reply)
         results.append({"case": c["name"], "reply": reply, "ok": ok,
                         "store_topics": insp.get("store_topics"),
                         "loaded": insp.get("loaded"),

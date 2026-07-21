@@ -25,6 +25,7 @@ import sys
 import urllib.request
 
 from grading import verdict, contains_any
+from judge import verdict as judge_verdict
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 4310
 MODE = sys.argv[2] if len(sys.argv) > 2 else "off"
@@ -84,10 +85,9 @@ CASES = [
             "I've burned through about 62 thousand calls so far this month.",
         ],
         "question": "am I over my monthly API allowance?",
-        # A verdict, not an echo of the question: "over" alone false-passed
-        # a reply that merely restated the question and asked for the data.
-        "needles": ["exceeded", "12 thousand", "12,000", "12000"],  # verdict forms; graded by grading.verdict (needle + not-a-punt)
-        "forbidden": [],
+        # Composition/verdict case: graded by the LLM judge, not substrings.
+        "truth": "over the allowance by 12,000 (62k used vs 50k plan)",
+        "needles": [], "forbidden": [],
     },
 ]
 
@@ -152,7 +152,10 @@ def main():
         reply, done = turn(c["question"])
         insp = (done or {}).get("inspector", {})
         low = reply.lower()
-        ok = verdict(reply, c["needles"])
+        if c.get("truth"):
+            ok = judge_verdict(c["question"], c["truth"], reply)
+        else:
+            ok = verdict(reply, c["needles"])
         stale = contains_any(reply, c["forbidden"]) and not ok
         results.append({"case": c["name"], "reply": reply, "ok": ok, "stale": stale,
                         "store_topics": insp.get("store_topics"),
