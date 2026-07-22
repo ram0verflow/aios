@@ -14,5 +14,6 @@ pub mod llamaserver;
 pub mod matcher;
 pub mod metrics;
 pub mod ollama;
+pub mod probe_util;
 pub mod server;
 pub mod store;

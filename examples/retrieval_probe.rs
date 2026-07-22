@@ -60,11 +60,14 @@ fn main() {
     let name = |idx: usize| -> String {
         label_of.iter().find(|(i, _)| *i == idx).map(|(_, l)| l.clone()).unwrap_or_else(|| format!("d{idx}"))
     };
-    // Real facts are "label.a"/"label.b" (contain a dot); distractors are
-    // "d{idx}" (no dot). Filter on the dot, not the leading letter — "drive"
-    // starts with 'd' too.
+    // Keep planted facts, drop distractors, via the one shared predicate
+    // (see probe_util: never filter on a leading 'd' — "drive" starts with it).
     let labels = |idxs: &[usize]| -> Vec<String> {
-        let mut v: Vec<String> = idxs.iter().map(|&i| name(i)).filter(|l| l.contains('.')).collect();
+        let mut v: Vec<String> = idxs
+            .iter()
+            .map(|&i| name(i))
+            .filter(|l| continuum::probe_util::is_planted_fact_label(l))
+            .collect();
         v.sort();
         v
     };
