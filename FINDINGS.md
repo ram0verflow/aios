@@ -752,3 +752,40 @@ predictions leaked internal scaffolding into the user-visible answer, one
 emitting a raw `[TIME NOTES]` block and one a `/social/how_many_months_have_passed`
 namespace slug. That is a formatting bug in the answer path, independent of
 whether the answer was right.
+
+### The 30 message cap is not what breaks multi-session, and the two must not be conflated
+
+LongMemEval haystacks are far larger than LoCoMo's, about 50 sessions and 490
+turns per question, while retrieval stays capped at 30 messages. That raises an
+obvious alternative explanation for the multi-session score: the questions might
+be structurally unanswerable under the budget, which would be a finding about
+the cap rather than about synthesis. So it was measured rather than assumed. The
+harness records which turns LongMemEval marks as carrying the answer, recomputes
+the exact route `page_in` takes, and reports how much of that evidence could
+have reached the model. Instrumentation only; what the model saw was unchanged.
+
+| category | evidence turns reached | evidence sessions reached | questions with all evidence |
+|---|---|---|---|
+| single-session-assistant | 20/20 | 20/20 | 20/20 |
+| single-session-user | 16/16 | 16/16 | 16/20 |
+| knowledge-update | 32/33 | 32/33 | 16/20 |
+| multi-session | 39/42 | 37/40 | 16/20 |
+| temporal-reasoning | 28/35 | 27/34 | 15/20 |
+
+For the multi-session questions specifically: the gold evidence spans two
+sessions in 15 of 20 cases and three in another 3, the median question had 2 of
+its 2 evidence sessions reached, all evidence sessions were reached in 17 of 20,
+and only 1 of 20 reached no evidence at all.
+
+So retrieval delivered the evidence and the answers were still wrong: 37 of 40
+evidence sessions reached against 5 of 20 correct. **The cap is not the binding
+constraint on this benchmark, and the multi-session result is a synthesis
+failure, not a budget failure.** It is the same conclusion the local harnesses
+reached by a different route, and it lines up with the failure transcripts,
+which are dominated by arithmetic errors over evidence that was present rather
+than by answers about facts the model never saw.
+
+The one caveat in the other direction: "multi-session" here mostly means two
+sessions, not ten. Whether a 30 message cap holds up when evidence is spread
+across many more sessions is not tested by this data, and this result should not
+be read as saying the budget never binds.
