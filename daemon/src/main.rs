@@ -7,7 +7,6 @@
 //! one memory that outlives every process and every model.
 
 mod api;
-mod calc;
 mod journal;
 mod mcp;
 mod providers;

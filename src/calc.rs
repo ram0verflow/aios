@@ -114,7 +114,7 @@ fn date_shift(expr: &str) -> Option<String> {
     } else {
         return None;
     };
-    let shifted = continuum::bedrock::civil_from_days(continuum::bedrock::days_from_civil(year, month, day) + sign * delta);
+    let shifted = crate::bedrock::civil_from_days(crate::bedrock::days_from_civil(year, month, day) + sign * delta);
     let name = capitalize(MONTHS[(shifted.1 - 1) as usize]);
     Some(if had_year || shifted.0 != current_year() {
         format!("{name} {} {}", shifted.2, shifted.0)
@@ -124,8 +124,13 @@ fn date_shift(expr: &str) -> Option<String> {
 }
 
 fn current_year() -> i64 {
-    let days = (crate::state::now_ms() / 86_400_000) as i64;
-    continuum::bedrock::civil_from_days(days).0
+    // Wall clock, inlined when this moved out of the daemon (it previously
+    // borrowed the daemon's state::now_ms).
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    crate::bedrock::civil_from_days((ms / 86_400_000) as i64).0
 }
 
 fn capitalize(s: &str) -> String {

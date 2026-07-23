@@ -5,6 +5,7 @@
 //! by a versioned four-level [`store`] and a demotion-based [`eviction`] policy.
 
 pub mod bedrock;
+pub mod calc;
 pub mod codegraph;
 pub mod driver;
 pub mod eviction;

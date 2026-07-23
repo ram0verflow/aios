@@ -23,7 +23,24 @@ use std::io::Write;
 use continuum::driver::MemoryIndexDriver;
 use continuum::hierarchical::HierarchicalTopicDriver;
 use continuum::kernel::{Kernel, KernelConfig};
-use continuum::ollama::Ollama;
+use continuum::ollama::{ChatMessage, Ollama};
+
+/// The daemon's calculator rule, verbatim, appended to the kernel's
+/// SYSTEM_TEMPLATE to form a SECOND, distinct prompt. SYSTEM_TEMPLATE is not
+/// edited: the point is to measure the delta between the two paths, so they
+/// have to stay separate.
+const CALC_RULE: &str = "\n- NEVER do arithmetic on remembered numbers or dates in your head (sums, \
+differences, comparisons against limits, date shifts). Respond with EXACTLY\n  \
+CALC_NEEDED: <expression>\n  and nothing else, e.g. `CALC_NEEDED: 1800 + 200` \
+or `CALC_NEEDED: October 14 + 7 days`. The exact result comes back to you.\n";
+
+/// Pull `PREFIX: rest` out of a reply the way the daemon's protocol parser does.
+fn protocol_request(reply: &str, prefix: &str) -> Option<String> {
+    reply.lines().find_map(|l| {
+        let t = l.trim();
+        t.find(prefix).map(|p| t[p + prefix.len()..].trim().to_string())
+    }).filter(|s| !s.is_empty())
+}
 
 use continuum::hierarchical::normalize_benchmark_date as normalize_date;
 
@@ -38,6 +55,11 @@ fn main() {
     // deterministic (embeddings + BM25), so reachability measured here is valid
     // for the graded run over the same sample.
     let mut structural_only = false;
+    // Same plumbing as eval: only the completion call moves. Retrieval,
+    // embeddings, prompts and the cap are unchanged.
+    let mut calc_path = false;
+    let mut provider = "ollama".to_string();
+    let mut region: Option<String> = None;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -47,6 +69,9 @@ fn main() {
             "--out-dir" => { out_dir = args[i + 1].clone(); i += 2; }
             "--tag" => { tag = args[i + 1].clone(); i += 2; }
             "--structural-only" => { structural_only = true; i += 1; }
+            "--calc" => { calc_path = true; i += 1; }
+            "--provider" => { provider = args[i + 1].clone(); i += 2; }
+            "--region" => { region = Some(args[i + 1].clone()); i += 2; }
             other => { eprintln!("unknown arg {other}"); i += 1; }
         }
     }
@@ -149,14 +174,47 @@ fn main() {
             } else {
                 let mut kernel = Kernel::new(ollama.clone(), KernelConfig::default());
                 kernel.mount(Box::new(d));
-                let r = kernel.query(question, &[]);
-                (r.response.trim().to_string(), r.page_faulted, r.messages_loaded)
+                if provider == "bedrock" {
+                    let region = region.clone().unwrap_or_else(continuum::bedrock::default_region);
+                    let model_id = model.clone();
+                    kernel.set_chat_override(Box::new(move |messages, max_tokens| {
+                        let (system, turns) = continuum::bedrock::converse_messages(messages);
+                        continuum::bedrock::converse(&region, &model_id, &system, &turns, max_tokens, 0.0)
+                    }));
+                }
+                if calc_path {
+                    // Daemon-equivalent path: same retrieval, CALC-enabled prompt,
+                    // and the same action loop (raise CALC_NEEDED, evaluate
+                    // deterministically, feed the exact value back, re-answer).
+                    let template = format!("{}{}", continuum::kernel::SYSTEM_TEMPLATE, CALC_RULE);
+                    let (mut messages, meta) = kernel.prepare_with(question, &[], &template);
+                    let mut reply = kernel.complete_messages(&messages).unwrap_or_default();
+                    let mut rounds = 0;
+                    let mut seen: Vec<String> = Vec::new();
+                    while rounds < 3 {
+                        let Some(expr) = protocol_request(&reply, "CALC_NEEDED:") else { break };
+                        if seen.contains(&expr) { break; }
+                        seen.push(expr.clone());
+                        let feedback = match continuum::calc::eval(&expr) {
+                            Ok(v) => format!("[CALC RESULT] {expr} = {v}\nUse this exact value in your answer."),
+                            Err(e) => format!("[CALC ERROR] {e}\nState the calculation in words instead of guessing a number."),
+                        };
+                        messages.push(ChatMessage::new("assistant", reply.clone()));
+                        messages.push(ChatMessage::new("user", feedback));
+                        reply = kernel.complete_messages(&messages).unwrap_or_default();
+                        rounds += 1;
+                    }
+                    (reply.trim().to_string(), meta.page_faulted, meta.messages_loaded)
+                } else {
+                    let r = kernel.query(question, &[]);
+                    (r.response.trim().to_string(), r.page_faulted, r.messages_loaded)
+                }
             };
 
             let rec = serde_json::json!({
                 "qid": qid, "cat": cat, "question": question, "gold": gold, "pred": pred,
                 "fault": faulted, "loaded": loaded,
-                "haystack_turns": turns, "model": model,
+                "haystack_turns": turns, "model": model, "path": if calc_path {"calc"} else {"system_template"},
                 "evidence_turns_total": ev_total, "evidence_turns_loaded": ev_loaded,
                 "evidence_sessions_total": ev_sessions_total.len(),
                 "evidence_sessions_loaded": ev_sessions_loaded.len(),

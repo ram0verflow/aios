@@ -424,7 +424,7 @@ impl Worker {
                     break;
                 }
                 self.send(events, json!({"t": "tool", "name": "calc"}));
-                match crate::calc::eval(&expr) {
+                match continuum::calc::eval(&expr) {
                     Ok(v) => {
                         loop_trace.push(json!({"round": round, "proto": "calc", "arg": expr, "outcome": format!("= {v}")}));
                         actions.push(json!({"type": "calc", "expr": expr, "result": v.clone()}));
