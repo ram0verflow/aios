@@ -125,6 +125,20 @@ pub struct RouteConfig {
     /// with the question. Hop two searches on the names the first round
     /// surfaced. Index work only, no model calls.
     pub multi_hop: bool,
+    /// Dense passage scoring over the FULL index instead of only reranking
+    /// what BM25 and the tree beam surfaced. Today a passage no lexical method
+    /// surfaces is never semantically scored, which is why "15 people on the
+    /// platform team" is unreachable from "engineers hired". With this set,
+    /// cosine over every message is a candidate generator and BM25 becomes an
+    /// additional signal rather than a gate. Costs recall of distractors.
+    pub ungate_dense: bool,
+    /// Append a value ledger to the working set: every quantity in the loaded
+    /// messages, with the clause it came from and the date it was stated.
+    /// Pure bookkeeping over the message index, never a relevance judgment,
+    /// because a relevance filter provably cannot separate two same-unit
+    /// quantities that are both topically valid (that is what falsified entity
+    /// scoping).
+    pub annotate_values: bool,
 }
 
 impl Default for RouteConfig {
@@ -136,6 +150,8 @@ impl Default for RouteConfig {
             max_load: 30,
             temporal_notes: true,
             multi_hop: false,
+            ungate_dense: false,
+            annotate_values: false,
         }
     }
 }
@@ -153,6 +169,41 @@ impl HierarchicalTopicDriver {
             last_leaf_path: None,
             last_path: std::cell::RefCell::new(String::new()),
         }
+    }
+
+    /// Bookkeeping, not judgment: every quantity in the loaded messages, paired
+    /// with the clause it came from and the date it was stated. Deterministic
+    /// scan of the message index. The point is that two same-unit quantities
+    /// ("140 gigabytes", "620 gigabytes") stop being interchangeable tokens and
+    /// carry the thing they belong to and the time they were true.
+    fn value_ledger(&self, indices: &[usize]) -> Vec<String> {
+        let mut out = Vec::new();
+        for &idx in indices {
+            let Some(msg) = self.msg_by_idx(idx) else { continue };
+            let words: Vec<&str> = msg.text.split_whitespace().collect();
+            let when = match parse_msg_date(&msg.timestamp) {
+                Some((y, m, d)) => fmt_date(y, m, d),
+                None => msg.timestamp.clone(),
+            };
+            let mut per_msg = 0;
+            for (i, w) in words.iter().enumerate() {
+                let has_digit = w.chars().any(|c| c.is_ascii_digit());
+                if !has_digit || per_msg >= 2 {
+                    continue;
+                }
+                // The clause around the number names what it belongs to.
+                let lo = i.saturating_sub(6);
+                let hi = (i + 3).min(words.len());
+                let clause = words[lo..hi].join(" ");
+                let qty = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '%');
+                out.push(format!("- {qty} — \"{clause}\" ({}, stated {when})", msg.speaker));
+                per_msg += 1;
+                if out.len() >= 16 {
+                    return out;
+                }
+            }
+        }
+        out
     }
 
     /// Give the driver an embedder for online ingestion. Without one, online
@@ -581,6 +632,21 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
             }
         }
 
+        // Ungated dense: cosine over EVERY message becomes a candidate source,
+        // so BM25 and the beam are additional signals rather than a gate. This
+        // is the reach half: a passage no lexical method surfaces (the
+        // platform-team fact against an "engineers hired" query) can now be
+        // scored at all. It knowingly admits distractors; the value ledger is
+        // the paired countermeasure.
+        if self.route_cfg.ungate_dense && !query_embedding.is_empty() {
+            let want = (max_load * 2).max(30);
+            let dense_ranked = self.flat_search(query_embedding);
+            path.push_str(&format!(" | ungated-dense[{}]", want.min(dense_ranked.len())));
+            for idx in dense_ranked.into_iter().take(want) {
+                candidates.insert(idx);
+            }
+        }
+
         if candidates.is_empty() {
             *self.last_path.borrow_mut() = "flat fallback".to_string();
             return self.flat_search(query_embedding);
@@ -685,6 +751,7 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
         ids
     }
 
+
     fn load_messages(&self, indices: &[usize], budget_tokens: usize) -> (String, usize) {
         let mut parts = Vec::new();
         let mut notes: Vec<String> = Vec::new();
@@ -722,6 +789,17 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
             }
         }
         let mut context = parts.join("\n");
+        if self.route_cfg.annotate_values {
+            let ledger = self.value_ledger(indices);
+            if !ledger.is_empty() {
+                let block = format!(
+                    "\n\n[VALUE LEDGER — every quantity above, with what it belongs to and when it was stated]\n{}",
+                    ledger.join("\n")
+                );
+                tokens += block.len() / 4;
+                context.push_str(&block);
+            }
+        }
         if !notes.is_empty() {
             let block = format!("\n\n[TIME NOTES — relative dates resolved by the OS]\n{}", notes.join("\n"));
             tokens += block.len() / 4;
@@ -1175,5 +1253,43 @@ mod tests {
         assert_eq!(ids, sorted, "presentation must be chronological, got {ids:?}");
         let (ctx, _) = d.load_messages(&ids, 1000);
         assert!(ctx.contains("adoption agencies"));
+    }
+}
+
+#[cfg(test)]
+mod annotation_tests {
+    use super::*;
+    use crate::driver::MemoryIndexDriver;
+
+    /// The ledger must pair every quantity with the clause it belongs to and
+    /// the date it was stated. This is the precision half: two same-unit
+    /// numbers must stop being interchangeable tokens.
+    #[test]
+    fn value_ledger_pairs_each_quantity_with_its_entity_and_date() {
+        let mut d = HierarchicalTopicDriver::new("/t");
+        let a = d.ingest_turn("user", "I'm currently keeping 140 gigabytes up there.", "3:00 pm on 3 March, 2023");
+        let b = d.ingest_turn("user", "My photo library weighs in at 620 gigabytes.", "4:00 pm on 12 August, 2023");
+        d.route_cfg.annotate_values = true;
+        let (ctx, _) = d.load_messages(&[a, b], 4000);
+
+        assert!(ctx.contains("VALUE LEDGER"), "no ledger rendered:\n{ctx}");
+        // Each quantity carries its own clause and its own date.
+        assert!(ctx.contains("140"), "140 missing");
+        assert!(ctx.contains("620"), "620 missing");
+        assert!(ctx.contains("3 March 2023"), "140's date missing:\n{ctx}");
+        assert!(ctx.contains("12 August 2023"), "620's date missing:\n{ctx}");
+        // The clause naming what each belongs to.
+        assert!(ctx.contains("photo library"), "620's entity clause missing:\n{ctx}");
+        assert!(ctx.contains("keeping"), "140's entity clause missing:\n{ctx}");
+    }
+
+    /// Off by default: the ledger must not appear unless asked for, or every
+    /// prior measurement would silently change.
+    #[test]
+    fn ledger_is_off_by_default() {
+        let mut d = HierarchicalTopicDriver::new("/t");
+        let a = d.ingest_turn("user", "The drive holds 500 gigabytes.", "1:00 pm on 1 May, 2023");
+        let (ctx, _) = d.load_messages(&[a], 4000);
+        assert!(!ctx.contains("VALUE LEDGER"), "ledger leaked into the default path");
     }
 }

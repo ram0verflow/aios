@@ -55,6 +55,8 @@ fn main() {
     // deterministic (embeddings + BM25), so reachability measured here is valid
     // for the graded run over the same sample.
     let mut structural_only = false;
+    let mut ungate = false;
+    let mut annotate = false;
     // Same plumbing as eval: only the completion call moves. Retrieval,
     // embeddings, prompts and the cap are unchanged.
     let mut calc_path = false;
@@ -69,6 +71,8 @@ fn main() {
             "--out-dir" => { out_dir = args[i + 1].clone(); i += 2; }
             "--tag" => { tag = args[i + 1].clone(); i += 2; }
             "--structural-only" => { structural_only = true; i += 1; }
+            "--ungate" => { ungate = true; i += 1; }
+            "--annotate" => { annotate = true; i += 1; }
             "--calc" => { calc_path = true; i += 1; }
             "--provider" => { provider = args[i + 1].clone(); i += 2; }
             "--region" => { region = Some(args[i + 1].clone()); i += 2; }
@@ -172,7 +176,9 @@ fn main() {
             let (pred, faulted, loaded) = if structural_only {
                 (String::new(), false, routed.len())
             } else {
-                let mut kernel = Kernel::new(ollama.clone(), KernelConfig::default());
+                d.route_cfg.ungate_dense = ungate;
+            d.route_cfg.annotate_values = annotate;
+            let mut kernel = Kernel::new(ollama.clone(), KernelConfig::default());
                 kernel.mount(Box::new(d));
                 if provider == "bedrock" {
                     let region = region.clone().unwrap_or_else(continuum::bedrock::default_region);

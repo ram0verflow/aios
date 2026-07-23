@@ -66,6 +66,8 @@ fn main() {
             "--model" => { model = args.get(i + 1).cloned().unwrap_or(model); i += 2; }
             "--judge-model" => { judge_model = args.get(i + 1).cloned(); i += 2; }
             "--provider" => { provider = args.get(i + 1).cloned().unwrap_or(provider); i += 2; }
+            "--ungate" => { ablate.push("ungate".into()); i += 1; }
+            "--annotate" => { ablate.push("annotate".into()); i += 1; }
             "--region" => { region = args.get(i + 1).cloned(); i += 2; }
             "--skip-adversarial" => { skip_adversarial = true; i += 1; }
             "--no-judge" => { use_judge = false; i += 1; }
@@ -124,6 +126,8 @@ fn main() {
             "resolver" => driver.route_cfg.temporal_notes = false,
             "multihop" => driver.route_cfg.multi_hop = false,
             "withhop" => driver.route_cfg.multi_hop = true,
+            "ungate" => driver.route_cfg.ungate_dense = true,
+            "annotate" => driver.route_cfg.annotate_values = true,
             other => eprintln!("unknown ablation: {other}"),
         }
     }
