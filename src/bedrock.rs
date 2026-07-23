@@ -14,6 +14,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
+
+use crate::ollama::ChatMessage;
 use sha2::{Digest, Sha256};
 
 pub struct AwsCreds {
@@ -132,6 +134,58 @@ fn list_claude_profiles_uncached(region: &str) -> Vec<String> {
 }
 
 /// One non-streaming Converse call. `messages` is Converse-shaped JSON.
+/// Fold a chat transcript into Bedrock Converse shapes: a system string plus
+/// turns whose `content` is a LIST of content blocks. Converse rejects a plain
+/// string content with `Unexpected field type`, which is the shape the
+/// Anthropic Messages API wants; keeping both converters in one place stops
+/// callers reaching for the wrong one.
+pub fn converse_messages(messages: &[ChatMessage]) -> (String, Vec<Value>) {
+    let mut system = String::new();
+    let mut turns: Vec<(String, String, Vec<String>)> = Vec::new();
+    for m in messages {
+        if m.role == "system" {
+            if !system.is_empty() {
+                system.push_str("\n\n");
+            }
+            system.push_str(&m.content);
+            continue;
+        }
+        let imgs = m.images.clone().unwrap_or_default();
+        match turns.last_mut() {
+            Some((role, content, images)) if *role == m.role => {
+                content.push_str("\n\n");
+                content.push_str(&m.content);
+                images.extend(imgs);
+            }
+            _ => turns.push((m.role.clone(), m.content.clone(), imgs)),
+        }
+    }
+    if turns.first().map(|(r, _, _)| r == "assistant").unwrap_or(false) {
+        turns.insert(0, ("user".into(), "(continuing)".into(), Vec::new()));
+    }
+    let turns = turns
+        .into_iter()
+        .map(|(role, content, images)| {
+            let mut blocks: Vec<Value> = images
+                .iter()
+                .filter_map(|d| {
+                    let (head, b64) = d.split_once(";base64,")?;
+                    let format = match head.strip_prefix("data:").unwrap_or("") {
+                        "image/jpeg" => "jpeg",
+                        "image/webp" => "webp",
+                        "image/gif" => "gif",
+                        _ => "png",
+                    };
+                    Some(json!({"image": {"format": format, "source": {"bytes": b64}}}))
+                })
+                .collect();
+            blocks.push(json!({"text": content}));
+            json!({"role": role, "content": blocks})
+        })
+        .collect();
+    (system, turns)
+}
+
 pub fn converse(
     region: &str,
     model_id: &str,

@@ -153,25 +153,7 @@ fn main() {
         let model_id = model.clone();
         eprintln!("[answer model: bedrock/{model_id} in {region}; retrieval + judge unchanged]");
         kernel.set_chat_override(Box::new(move |messages, max_tokens| {
-            let mut system = String::new();
-            let mut turns: Vec<serde_json::Value> = Vec::new();
-            for m in messages {
-                if m.role == "system" {
-                    if !system.is_empty() { system.push_str("\n\n"); }
-                    system.push_str(&m.content);
-                    continue;
-                }
-                match turns.last_mut() {
-                    Some(t) if t["role"] == m.role => {
-                        let merged = format!("{}\n\n{}", t["content"].as_str().unwrap_or(""), m.content);
-                        t["content"] = serde_json::Value::String(merged);
-                    }
-                    _ => turns.push(serde_json::json!({"role": m.role, "content": m.content})),
-                }
-            }
-            if turns.first().map(|t| t["role"] == "assistant").unwrap_or(false) {
-                turns.insert(0, serde_json::json!({"role": "user", "content": "(continuing)"}));
-            }
+            let (system, turns) = continuum::bedrock::converse_messages(messages);
             continuum::bedrock::converse(&region, &model_id, &system, &turns, max_tokens, 0.0)
         }));
     } else if provider != "ollama" {

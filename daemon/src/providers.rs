@@ -446,7 +446,7 @@ impl Provider for BedrockProvider {
         if cancelled(cancel) {
             return Ok(String::new());
         }
-        let (system, turns) = converse_messages(messages);
+        let (system, turns) = continuum::bedrock::converse_messages(messages);
         let full = continuum::bedrock::converse(&self.region, &self.model_id, &system, &turns, max_tokens, temperature)?;
         if !cancelled(cancel) {
             on_token(&full);
@@ -455,53 +455,6 @@ impl Provider for BedrockProvider {
     }
 }
 
-/// Same folding as the Anthropic API, in Converse content shapes.
-fn converse_messages(messages: &[ChatMessage]) -> (String, Vec<Value>) {
-    let mut system = String::new();
-    let mut turns: Vec<(String, String, Vec<String>)> = Vec::new();
-    for m in messages {
-        if m.role == "system" {
-            if !system.is_empty() {
-                system.push_str("\n\n");
-            }
-            system.push_str(&m.content);
-            continue;
-        }
-        let imgs = m.images.clone().unwrap_or_default();
-        match turns.last_mut() {
-            Some((role, content, images)) if *role == m.role => {
-                content.push_str("\n\n");
-                content.push_str(&m.content);
-                images.extend(imgs);
-            }
-            _ => turns.push((m.role.clone(), m.content.clone(), imgs)),
-        }
-    }
-    if turns.first().map(|(r, _, _)| r == "assistant").unwrap_or(false) {
-        turns.insert(0, ("user".into(), "(continuing)".into(), Vec::new()));
-    }
-    let turns = turns
-        .into_iter()
-        .map(|(role, content, images)| {
-            let mut blocks: Vec<Value> = images
-                .iter()
-                .filter_map(|d| {
-                    let (head, b64) = d.split_once(";base64,")?;
-                    let format = match head.strip_prefix("data:").unwrap_or("") {
-                        "image/jpeg" => "jpeg",
-                        "image/webp" => "webp",
-                        "image/gif" => "gif",
-                        _ => "png",
-                    };
-                    Some(json!({"image": {"format": format, "source": {"bytes": b64}}}))
-                })
-                .collect();
-            blocks.push(json!({"text": content}));
-            json!({"role": role, "content": blocks})
-        })
-        .collect();
-    (system, turns)
-}
 
 fn fmt_ureq(e: ureq::Error) -> String {
     match e {
