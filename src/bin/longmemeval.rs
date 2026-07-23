@@ -25,37 +25,7 @@ use continuum::hierarchical::HierarchicalTopicDriver;
 use continuum::kernel::{Kernel, KernelConfig};
 use continuum::ollama::Ollama;
 
-const MONTHS: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-];
-
-/// LongMemEval dates look like `2023/04/10 (Mon) 17:50`; the date resolver in
-/// the driver parses month NAMES, which is the form the LoCoMo harness feeds
-/// it (`1:56 pm on 8 May, 2023`). Convert so the benchmark is presented in the
-/// format the system already consumes. This normalizes the input, it does not
-/// change the system: feeding the raw numeric form would measure a parser
-/// mismatch rather than temporal reasoning.
-fn normalize_date(s: &str) -> String {
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    let ymd: Vec<&str> = parts.first().map(|p| p.split('/').collect()).unwrap_or_default();
-    if ymd.len() != 3 {
-        return s.to_string();
-    }
-    let (y, m, d) = (ymd[0], ymd[1], ymd[2]);
-    let mi: usize = m.parse::<usize>().unwrap_or(1).clamp(1, 12) - 1;
-    let day: u32 = d.parse().unwrap_or(1);
-    let hm = parts.last().copied().unwrap_or("12:00");
-    let (h, min) = hm.split_once(':').unwrap_or(("12", "00"));
-    let h24: u32 = h.parse().unwrap_or(12);
-    let (h12, ampm) = match h24 {
-        0 => (12, "am"),
-        1..=11 => (h24, "am"),
-        12 => (12, "pm"),
-        _ => (h24 - 12, "pm"),
-    };
-    format!("{h12}:{min} {ampm} on {day} {}, {y}", MONTHS[mi])
-}
+use continuum::hierarchical::normalize_benchmark_date as normalize_date;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -124,6 +94,9 @@ fn main() {
             let sessions = q.get("haystack_sessions").and_then(|v| v.as_array());
             let dates = q.get("haystack_dates").and_then(|v| v.as_array());
             let mut turns = 0usize;
+            // (message idx, session idx) for every turn LongMemEval marks as
+            // carrying the answer.
+            let mut evidence: Vec<(usize, usize)> = Vec::new();
             if let Some(sessions) = sessions {
                 for (si, sess) in sessions.iter().enumerate() {
                     let ts = dates
@@ -136,13 +109,35 @@ fn main() {
                             let role = t.get("role").and_then(|v| v.as_str()).unwrap_or("user");
                             let text = t.get("content").and_then(|v| v.as_str()).unwrap_or("");
                             if !text.is_empty() {
-                                d.ingest_turn(role, text, &ts);
+                                let idx = d.ingest_turn(role, text, &ts);
+                                if t.get("has_answer").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                    evidence.push((idx, si));
+                                }
                                 turns += 1;
                             }
                         }
                     }
                 }
             }
+
+            // Structural instrumentation, separate from capability. LongMemEval
+            // haystacks are far larger than LoCoMo's and retrieval is capped at
+            // 30 messages, so a multi-session question can be unanswerable for
+            // budget reasons rather than synthesis reasons. Recompute the same
+            // route page_in will take (same embedding, same route_query) purely
+            // to see which evidence turns could have reached the model. This
+            // does not change what the model is shown.
+            let q_emb = ollama.embed(question).unwrap_or_default();
+            let routed = d.route_query(question, &q_emb);
+            let ev_total = evidence.len();
+            let ev_loaded = evidence.iter().filter(|(i, _)| routed.contains(i)).count();
+            let ev_sessions_total: std::collections::BTreeSet<usize> =
+                evidence.iter().map(|(_, s)| *s).collect();
+            let ev_sessions_loaded: std::collections::BTreeSet<usize> = evidence
+                .iter()
+                .filter(|(i, _)| routed.contains(i))
+                .map(|(_, s)| *s)
+                .collect();
 
             let mut kernel = Kernel::new(ollama.clone(), KernelConfig::default());
             kernel.mount(Box::new(d));
@@ -153,6 +148,10 @@ fn main() {
                 "qid": qid, "cat": cat, "question": question, "gold": gold, "pred": pred,
                 "fault": result.page_faulted, "loaded": result.messages_loaded,
                 "haystack_turns": turns, "model": model,
+                "evidence_turns_total": ev_total, "evidence_turns_loaded": ev_loaded,
+                "evidence_sessions_total": ev_sessions_total.len(),
+                "evidence_sessions_loaded": ev_sessions_loaded.len(),
+                "routed_total": routed.len(),
             });
             writeln!(f, "{rec}").ok();
             done += 1;
