@@ -69,7 +69,7 @@ pub fn build(settings: &Settings, keys: &Keys) -> Result<Box<dyn Provider>, Stri
         "llamaserver" => Ok(Box::new(LlamaServerProvider { port: 8080 })),
         "bedrock" => Ok(Box::new(BedrockProvider {
             model_id: settings.model.clone(),
-            region: crate::bedrock::default_region(),
+            region: continuum::bedrock::default_region(),
         })),
         other => Err(format!("unknown provider '{other}'")),
     }
@@ -447,7 +447,7 @@ impl Provider for BedrockProvider {
             return Ok(String::new());
         }
         let (system, turns) = converse_messages(messages);
-        let full = crate::bedrock::converse(&self.region, &self.model_id, &system, &turns, max_tokens, temperature)?;
+        let full = continuum::bedrock::converse(&self.region, &self.model_id, &system, &turns, max_tokens, temperature)?;
         if !cancelled(cancel) {
             on_token(&full);
         }

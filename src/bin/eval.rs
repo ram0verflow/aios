@@ -47,6 +47,11 @@ fn main() {
     let mut use_judge = true;
     let mut adv_only = false;
     let mut judge_model: Option<String> = None;
+    // Answer-model provider. "ollama" (default) preserves every prior run
+    // exactly; "bedrock" routes ONLY the completion call to Bedrock. Retrieval,
+    // prompts, the 30-message cap, embeddings and the judge are untouched.
+    let mut provider = "ollama".to_string();
+    let mut region: Option<String> = None;
     let mut ablate: Vec<String> = Vec::new();
 
     let args: Vec<String> = std::env::args().collect();
@@ -60,6 +65,8 @@ fn main() {
             "--conv" => { conv_idx = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(conv_idx); i += 2; }
             "--model" => { model = args.get(i + 1).cloned().unwrap_or(model); i += 2; }
             "--judge-model" => { judge_model = args.get(i + 1).cloned(); i += 2; }
+            "--provider" => { provider = args.get(i + 1).cloned().unwrap_or(provider); i += 2; }
+            "--region" => { region = args.get(i + 1).cloned(); i += 2; }
             "--skip-adversarial" => { skip_adversarial = true; i += 1; }
             "--no-judge" => { use_judge = false; i += 1; }
             "--adv-only" => { adv_only = true; i += 1; }
@@ -139,6 +146,38 @@ fn main() {
     };
     let mut kernel = Kernel::new(ollama, KernelConfig::default());
     kernel.mount(Box::new(driver));
+    if provider == "bedrock" {
+        // Only the completion call moves. Embeddings stay on Ollama above, so
+        // the retrieval path is bit-for-bit the same as the ollama runs.
+        let region = region.unwrap_or_else(continuum::bedrock::default_region);
+        let model_id = model.clone();
+        eprintln!("[answer model: bedrock/{model_id} in {region}; retrieval + judge unchanged]");
+        kernel.set_chat_override(Box::new(move |messages, max_tokens| {
+            let mut system = String::new();
+            let mut turns: Vec<serde_json::Value> = Vec::new();
+            for m in messages {
+                if m.role == "system" {
+                    if !system.is_empty() { system.push_str("\n\n"); }
+                    system.push_str(&m.content);
+                    continue;
+                }
+                match turns.last_mut() {
+                    Some(t) if t["role"] == m.role => {
+                        let merged = format!("{}\n\n{}", t["content"].as_str().unwrap_or(""), m.content);
+                        t["content"] = serde_json::Value::String(merged);
+                    }
+                    _ => turns.push(serde_json::json!({"role": m.role, "content": m.content})),
+                }
+            }
+            if turns.first().map(|t| t["role"] == "assistant").unwrap_or(false) {
+                turns.insert(0, serde_json::json!({"role": "user", "content": "(continuing)"}));
+            }
+            continuum::bedrock::converse(&region, &model_id, &system, &turns, max_tokens, 0.0)
+        }));
+    } else if provider != "ollama" {
+        eprintln!("unknown --provider {provider} (expected ollama|bedrock)");
+        std::process::exit(2);
+    }
 
     // Accumulators
     let mut n = 0usize;

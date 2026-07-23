@@ -72,6 +72,9 @@ pub struct QueryResult {
     pub generation_ms: f64,
 }
 
+/// A completion function: (messages, max_tokens) -> reply text.
+pub type ChatFn = Box<dyn Fn(&[ChatMessage], usize) -> Result<String, String> + Send + Sync>;
+
 /// The kernel owns a set of drivers and the LLM handle. Each driver is a Volume.
 pub struct Kernel {
     pub config: KernelConfig,
@@ -81,6 +84,11 @@ pub struct Kernel {
     /// Embeddings always stay on Ollama.
     kv: Option<crate::llamaserver::LlamaServer>,
     drivers: Vec<Box<dyn MemoryIndexDriver>>,
+    /// Optional completion override. When set, `complete` routes through this
+    /// instead of Ollama/llama-server, which is how the eval harness targets a
+    /// hosted answer model without touching retrieval, prompts, or the cap.
+    /// Unset (the default) leaves behaviour exactly as before.
+    chat_override: Option<ChatFn>,
     identity: String,
     /// Optional per-turn block of store content (topic summaries and
     /// current facts) to page in alongside the driver's messages. Empty
@@ -91,7 +99,7 @@ pub struct Kernel {
 
 impl Kernel {
     pub fn new(ollama: Ollama, config: KernelConfig) -> Self {
-        Kernel { config, ollama, kv: None, drivers: Vec::new(), identity: String::new(), store_block: String::new() }
+        Kernel { config, ollama, kv: None, drivers: Vec::new(), chat_override: None, identity: String::new(), store_block: String::new() }
     }
 
     /// Mount the KV-paging inference backend.
@@ -120,6 +128,9 @@ impl Kernel {
 
     /// One chat completion via whichever backend is mounted.
     fn complete(&self, messages: &[ChatMessage]) -> Result<String, String> {
+        if let Some(f) = &self.chat_override {
+            return f(messages, self.config.max_response_tokens);
+        }
         match &self.kv {
             Some(server) => server.chat(messages, self.config.max_response_tokens),
             None => self.ollama.chat(messages, self.config.num_ctx, self.config.max_response_tokens),
@@ -128,6 +139,12 @@ impl Kernel {
 
     pub fn mount(&mut self, driver: Box<dyn MemoryIndexDriver>) {
         self.drivers.push(driver);
+    }
+
+    /// Route completions through `f` instead of the local backend. Embeddings
+    /// stay on Ollama regardless, so retrieval is unchanged.
+    pub fn set_chat_override(&mut self, f: ChatFn) {
+        self.chat_override = Some(f);
     }
 
     pub fn set_identity(&mut self, identity: &str) {

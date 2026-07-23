@@ -10,6 +10,11 @@ members = [".", "kvpoc", "daemon"]
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Bedrock adapter (src/bedrock.rs): TLS HTTP + SigV4 signing. Used by the
+# daemon's provider and by the eval harness's --provider bedrock path.
+ureq = { version = "2.10", features = ["json"] }
+sha2 = "0.10"
+hmac = "0.12"
 
 [[bin]]
 name = "continuum"

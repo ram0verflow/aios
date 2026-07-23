@@ -470,10 +470,10 @@ fn models(shared: &Arc<Shared>) -> Value {
 
     // Claude through the user's own AWS account. Real inference profiles
     // when the CLI session is live; an honest pointer when it is not.
-    let aws_ok = crate::bedrock::credentials().is_ok();
+    let aws_ok = continuum::bedrock::credentials().is_ok();
     if aws_ok {
-        let region = crate::bedrock::default_region();
-        let profiles = crate::bedrock::list_claude_profiles(&region);
+        let region = continuum::bedrock::default_region();
+        let profiles = continuum::bedrock::list_claude_profiles(&region);
         if profiles.is_empty() {
             self_hosted.push(json!({
                 "provider": "bedrock", "model": "", "label": "AWS Bedrock",

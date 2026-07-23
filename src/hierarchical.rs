@@ -768,6 +768,83 @@ fn fmt_date(y: i32, m: u32, d: u32) -> String {
     format!("{} {} {}", d, MONTHS[(m - 1) as usize], y)
 }
 
+/// Rewrite a LongMemEval timestamp (`2023/04/10 (Mon) 17:50`) into the form the
+/// LoCoMo harness already feeds and `parse_msg_date` above actually parses
+/// (`5:50 pm on 10 April, 2023`).
+///
+/// This lives here, next to the parser it has to satisfy, so there is exactly
+/// one implementation and the round-trip is covered by a test. A normalization
+/// that silently failed to parse would produce precisely the temporal-reasoning
+/// failure the normalization exists to avoid measuring, and it would look like
+/// a capability result rather than a bug.
+pub fn normalize_benchmark_date(s: &str) -> String {
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    let ymd: Vec<&str> = parts.first().map(|p| p.split('/').collect()).unwrap_or_default();
+    if ymd.len() != 3 {
+        return s.to_string();
+    }
+    let mi: usize = match ymd[1].parse::<usize>() {
+        Ok(m) if (1..=12).contains(&m) => m - 1,
+        _ => return s.to_string(),
+    };
+    let day: u32 = match ymd[2].parse() {
+        Ok(d) => d,
+        Err(_) => return s.to_string(),
+    };
+    let hm = parts.last().copied().unwrap_or("12:00");
+    let (h, min) = hm.split_once(':').unwrap_or(("12", "00"));
+    let h24: u32 = h.parse().unwrap_or(12);
+    let (h12, ampm) = match h24 {
+        0 => (12, "am"),
+        1..=11 => (h24, "am"),
+        12 => (12, "pm"),
+        _ => (h24 - 12, "pm"),
+    };
+    format!("{h12}:{min} {ampm} on {day} {}, {}", MONTHS[mi], ymd[0])
+}
+
+#[cfg(test)]
+mod date_normalization_tests {
+    use super::{normalize_benchmark_date, parse_msg_date};
+
+    /// The gate: a normalized LongMemEval stamp must actually parse, and parse
+    /// to the right calendar date. Verified, not assumed.
+    #[test]
+    fn longmemeval_dates_round_trip_through_the_resolver() {
+        let cases = [
+            ("2023/04/10 (Mon) 17:50", (2023, 4, 10)),
+            ("2023/04/10 (Mon) 23:07", (2023, 4, 10)),
+            ("2023/01/01 (Sun) 00:15", (2023, 1, 1)),
+            ("2022/12/31 (Sat) 12:00", (2022, 12, 31)),
+            ("2023/11/05 (Sun) 09:03", (2023, 11, 5)),
+        ];
+        for (raw, want) in cases {
+            let norm = normalize_benchmark_date(raw);
+            let got = parse_msg_date(&norm)
+                .unwrap_or_else(|| panic!("normalized {raw:?} -> {norm:?} did NOT parse"));
+            assert_eq!(got, want, "{raw:?} -> {norm:?} parsed as {got:?}");
+        }
+    }
+
+    /// Midnight and noon are the two the 12-hour conversion gets wrong if the
+    /// mapping is naive; the parsed date must still be right.
+    #[test]
+    fn midnight_and_noon_normalize_sanely() {
+        assert!(normalize_benchmark_date("2023/06/09 (Fri) 00:30").starts_with("12:30 am"));
+        assert!(normalize_benchmark_date("2023/06/09 (Fri) 12:30").starts_with("12:30 pm"));
+        assert!(normalize_benchmark_date("2023/06/09 (Fri) 13:05").starts_with("1:05 pm"));
+        assert_eq!(parse_msg_date(&normalize_benchmark_date("2023/06/09 (Fri) 00:30")), Some((2023, 6, 9)));
+    }
+
+    /// A shape it cannot parse must be passed through untouched rather than
+    /// silently mangled into a wrong date.
+    #[test]
+    fn unparseable_input_passes_through() {
+        assert_eq!(normalize_benchmark_date("1:56 pm on 8 May, 2023"), "1:56 pm on 8 May, 2023");
+        assert_eq!(normalize_benchmark_date("garbage"), "garbage");
+    }
+}
+
 /// Days since civil epoch (Howard Hinnant's algorithm), for cross-month
 /// "yesterday"/"tomorrow" arithmetic without pulling in chrono.
 fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {

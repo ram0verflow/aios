@@ -4,6 +4,7 @@
 //! domain-agnostic [`kernel`] over pluggable [`driver`]s (VFS volumes), backed
 //! by a versioned four-level [`store`] and a demotion-based [`eviction`] policy.
 
+pub mod bedrock;
 pub mod codegraph;
 pub mod driver;
 pub mod eviction;
