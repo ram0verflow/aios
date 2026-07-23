@@ -31,5 +31,9 @@ path = "src/bin/transfer.rs"
 name = "babilong"
 path = "src/bin/babilong.rs"
 
+[[bin]]
+name = "longmemeval"
+path = "src/bin/longmemeval.rs"
+
 [profile.release]
 opt-level = 3

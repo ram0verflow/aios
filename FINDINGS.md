@@ -560,3 +560,114 @@ never gave it. The 8B write back classifier also files things under odd
 topic names, which is why the store deduplicates on write and the browser
 has correct and delete. A bigger classifier, or handing classification to
 the answer model, fixes more of that than prompt tweaks do.
+
+## Model tiers, an outside benchmark, and what Letta's number does not mean
+
+Two things prompted this round. The first is that every number above uses one
+answer model, so none of them separate what the memory layer does from what
+llama 3.1 8B does. The second is that LoCoMo reports a single aggregate, and an
+aggregate averages away the one capability these harnesses keep catching:
+composition across sessions, which sat at roughly one of seven when it was
+measured directly. A benchmark that scores that separately is worth more than
+another point of LoCoMo.
+
+### The Nova Pro tier did not run, and the reason is worth recording
+
+The plan was to hold everything fixed (same held-out conversation, same 30
+message cap, same retrieval path, same prompts, same judge) and vary only the
+answer model, with Nova Pro as the second tier. It did not run: the AWS session
+had expired, and re-authenticating is an interactive SSO flow. Every Bedrock
+model is blocked by the same wall, so Llama 3.3 70B and Mistral-on-Bedrock are
+equally unavailable, not just Nova.
+
+A second obstacle would have applied anyway, and it is the more interesting one:
+`eval` is Ollama-only. It constructs `Ollama::new(&model, ...)` directly, and the
+provider abstraction that speaks Bedrock lives in the daemon crate, not the
+library. Running a hosted model through the LoCoMo harness therefore needs a
+completion path added to the kernel or the eval binary. That is harness
+plumbing rather than a retrieval or prompt change, but it is not free and it had
+not been noticed before this round, because the model tier had never been varied
+through this binary.
+
+One deliberate exclusion: Haiku is not usable as an answer model in any run
+graded by `judge_frontier.py`, because that judge runs Haiku. Claude grading
+Claude is exactly the self-grading problem the first evaluation round existed to
+remove, when grading with the same 8B model that produced the answers turned out
+to be 19 points optimistic. A third tier, if one is added, has to be a
+non-Anthropic model.
+
+### Letta's 74% is not a comparison, it is directional context
+
+Letta reports 74.0% on LoCoMo with GPT-4o mini, against the 54.3% here. Three
+differences make the two numbers non-comparable, and all three matter:
+
+- **Different answer model.** Theirs is GPT-4o mini; there are no OpenAI credits
+  here, so this cannot be matched. The ablations above already showed how much
+  of a headline number is the answer model rather than the memory layer: three
+  model families on this identical stack landed between 45 and 50 percent.
+- **Different protocol.** Their agent does multi-round agentic retrieval: it
+  calls `search_files`, keeps searching at its own discretion, and calls
+  `answer_question` to terminate, with both grep and semantic search available.
+  This system does single-pass retrieval with a 30 message cap plus at most one
+  fault. An agent that can keep looking until it decides to stop is doing
+  something categorically different from one retrieval and one answer.
+- **Different grading.** Their published writeup does not state the judge model,
+  so the grader is not matched either, and grading choice is worth 19 points on
+  this benchmark by direct measurement.
+
+Same benchmark, different protocol. It is directional context for where a
+retrieval-plus-agent design can get to, not a gap to close, and closing it is
+explicitly not a goal here.
+
+### Why LongMemEval is being added instead of optimizing LoCoMo further
+
+LoCoMo's reliability is contested in the field. Letta's own writeup argues that
+current memory benchmarks may not be very meaningful, and there is public
+dispute between vendors over reported LoCoMo numbers. Combined with the
+aggregate hiding the composition failure, the useful move is a second benchmark
+that scores capabilities separately rather than more effort against the first
+one.
+
+LongMemEval splits 500 questions into six categories: single-session user,
+single-session assistant, single-session preference, multi-session,
+temporal-reasoning, and knowledge-update. Those map almost directly onto what
+these harnesses already found, which makes it a genuine test of the earlier
+conclusions rather than a fresh fishing expedition. The prediction going in,
+written down before the run: strong on single-session recall and on knowledge
+update (the store versions corrections, and the contradiction chains scored 7 of
+7), weak on multi-session synthesis and temporal reasoning (composition was 1 of
+7, and date-shift synthesis 3 of 7). If that shape appears on someone else's
+data, it is the first independent confirmation of the failure this project has
+been chasing.
+
+### Harness notes, including two things that would have silently corrupted the run
+
+`src/bin/longmemeval.rs` deliberately mirrors `eval.rs`: same driver, same
+kernel, same `SYSTEM_TEMPLATE`, same 30 message cap, same single pass plus one
+fault. Each question carries its own haystack of about 50 sessions and 490
+turns, so every question gets a fresh driver, ingests its own haystack, and then
+asks once. Output is one jsonl per category, which lets `judge_frontier.py`
+grade them completely unchanged, since it already reports per file.
+
+Two data hazards were caught before the run rather than after:
+
+- **32 of the 500 golds are JSON numbers, not strings** (22 multi-session, 8
+  temporal-reasoning, 2 knowledge-update), and reading them with `as_str()`
+  yields an empty gold, which would have made those questions unjudgeable while
+  looking like ordinary failures. Both forms are now rendered.
+- **The date formats differ.** LoCoMo feeds `1:56 pm on 8 May, 2023` and the
+  driver's resolver parses month names; LongMemEval uses `2023/04/10 (Mon)
+  17:50`. Feeding the raw numeric form would have measured a parser mismatch and
+  reported it as a temporal-reasoning failure. Dates are normalized into the
+  format the harness already consumes. This changes the input presentation, not
+  the system, and it is the difference between testing the capability and
+  testing the parser.
+
+One caveat that cannot be engineered away: the single-session-preference golds
+are rubric text, a median of 376 characters describing what a good answer would
+do, where every other category has a short factual gold (4 to 33 characters).
+`judge_frontier.py` asks whether the answer conveys the same key information as
+the gold, which is the wrong question for a rubric. LongMemEval's own evaluation
+uses category-specific prompts. The preference number below is therefore not
+comparable to published LongMemEval preference scores and is reported separately
+for that reason.
