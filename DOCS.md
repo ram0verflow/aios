@@ -40,6 +40,7 @@ When the session window fills, the most evictable slot goes first:
 $$v_x = \frac{t - t_{last}}{60} - 5\,a_x + \tau_x + \beta_x$$
 
 staleness in minutes, minus five per access, $\tau_x$ is +20 off topic or -10 on topic, and $\beta_x$ makes raw messages go before details and details before summaries. Identity and pinned slots never evict. Eviction is demotion: evicted messages land in the store's archive, not the trash.
+
 ## The daemon and the app
 
 The prototype server grew into the real shape: a long lived localhost daemon that owns the kernel, the versioned store, and an append only journal under `~/.continuum/`, plus a React frontend that is a thin client of it. One user, one timeline, one memory. There are no sessions anywhere in the API or the UI, and existing `companion/` state is adopted on first boot.
@@ -93,28 +94,29 @@ done
 Grade them. Put an API key in `.env` (either `ANTHROPIC_API_KEY=...` or `OPENAI_API_KEY=...`, the script picks whichever exists). Grading all ten conversations cost me under two dollars.
 
 ```
-python3 judge_frontier.py "fullbench/aios_conv*.jsonl" "fullbench/aios_adv*.jsonl"
+python3 bench/judge_frontier.py "fullbench/aios_conv*.jsonl" "fullbench/aios_adv*.jsonl"
 ```
 
 The no memory baseline:
 
 ```
-python3 contamination_gen.py
-python3 judge_frontier.py fullbench/contamination_conv0.jsonl
+python3 bench/contamination_gen.py
+python3 bench/judge_frontier.py fullbench/contamination_conv0.jsonl
 ```
 
 The mem0 comparison. Ingestion is slow, hours on my machine:
 
 ```
 python3 -m venv .venv && .venv/bin/pip install mem0ai ollama fastembed
-.venv/bin/python mem0_bench.py
-python3 judge_frontier.py "fullbench/mem0_conv?.jsonl"
+.venv/bin/python bench/mem0_bench.py
+python3 bench/judge_frontier.py "fullbench/mem0_conv?.jsonl"
 ```
+
 ## The fine tune
 
 ```
 .venv/bin/pip install mlx-lm "transformers==4.56.2"
-python3 gen_training_data.py     # writes ft_data/ from conversations 1-9
+python3 training/gen_training_data.py     # writes ft_data/ from conversations 1-9
 
 .venv/bin/python -m mlx_lm lora --train \
   --model mlx-community/Meta-Llama-3.1-8B-Instruct-4bit \
@@ -132,6 +134,7 @@ ollama create aios-ft -f Modelfile    # FROM ./your.gguf
 ```
 
 Training took my machine about 12 hours per round because it throttles. A rented GPU would do it in under an hour.
+
 ## The KV experiments
 
 Prefill is 97 to 99% of query latency here, and llama.cpp can save per sequence KV state to disk and shift RoPE positions of cached tokens. That means a memory block can be encoded once at position zero, saved, and later restored at any offset and stitched next to other blocks without re reading the text. It works: the model answered correctly from a block that had been shifted 30 positions. There is also a harness that runs a fake coding session where the codebase is five times the context window, and the planted facts survive while questions about absent code get refused. I wrote that codebase and those questions myself, so treat it as a demo rather than an evaluation. KV state files are model locked at about 125 KB per token; text stays the source of truth and KV is a cache tier, never the store.
@@ -146,6 +149,7 @@ cargo run --release -p kvpoc --bin codesession -- $BLOB    # fake coding session
 ```
 
 A known cosmetic issue: the kvpoc binaries hit a Metal assert inside llama.cpp during process exit, after results are printed. Upstream PR 17869.
+
 ## Layout
 
 ```

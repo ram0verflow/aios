@@ -70,14 +70,14 @@ BABILong (facts hidden in 64k tokens of book text, answered through a 4k
 window, exact match): qa1 13/20, qa2 0/20, qa3 2/20, qa4 12/20, qa5 20/20.
 Single fact tasks work well through sparse retrieval. Chained fact tasks
 fail, the same multi hop weakness LoCoMo showed, and the known failure mode
-of retrieval systems generally. Fetch the data with `fetch_babilong.py`,
+of retrieval systems generally. Fetch the data with `bench/fetch_babilong.py`,
 run with `cargo run --release --bin babilong`.
 
 There is an endurance script that hammers the live loop: it plants ten
 facts, buries them under a hundred turns of unrelated chatter on the small
 fixed window, then asks for them back. 130 turns over 104 minutes, the
 window never went over budget, 9 of 10 facts came back (the tenth was a
-grader casing bug). `python3 endurance.py <port>` against a running server.
+grader casing bug). `python3 harnesses/endurance.py <port>` against a running server.
 
 The daemon has its own compaction stress harness. It forces the session
 window down to 500 tokens, plants ten facts, buries them under thirty
@@ -88,7 +88,7 @@ said:
 
 ```
 CONTINUUM_HOME=/tmp/continuum-stress ./target/release/continuumd --port 4311
-python3 stress_daemon.py 4311
+python3 harnesses/stress_daemon.py 4311
 ```
 
 The harness grades three claims separately, because they are different
@@ -165,7 +165,7 @@ experiment is sitting there ready to rerun.
 
 That verdict had a hole in it, though: every fact in the harness lives in
 one message, which is the case raw retrieval was never going to lose. So
-there are two more instruments. `leak_gauntlet.py` measures near miss
+there are two more instruments. `harnesses/leak_gauntlet.py` measures near miss
 confabulation per answer model: plant a gym locker combination, then ask
 about a pool locker, a bike lock, an office locker, and a train time that
 were never mentioned, twice each, on a fresh state per model. Nova Pro
@@ -176,7 +176,7 @@ was the pool locker question specifically; the other three frames never
 tempted anyone. The daemon now defaults to the model that never leaked,
 and the harder tests below ran on it.
 
-`stress_discriminate.py` plants cases that do not live in one message:
+`harnesses/stress_discriminate.py` plants cases that do not live in one message:
 synthesis (the dentist date in one turn, "pushing everything in my
 calendar back a week" thirty turns later, phrased to share no keyword
 with the question), contradiction chains (an editor changed three times,

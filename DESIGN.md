@@ -1,5 +1,19 @@
 # AIOS Companion, Product Design Document
 
+> **What this document is, and which of the four to read.** This is the
+> original product brief the daemon and the web app were built *from*: intent,
+> rationale, and the phased plan, written before any of it existed. It is kept
+> as a historical artifact and is deliberately not updated as the code moves,
+> so where it says "build this" most of it is now built, and it still uses the
+> project's former name (AIOS; the project is now called continuum).
+>
+> For anything about how the system works *today*, prefer the others:
+>
+> - **[README.md](README.md)** — what this is, the measured results, install and usage.
+> - **[DOCS.md](DOCS.md)** — current reference: turn flow, architecture, API, and the benchmark, fine-tune and KV how-tos. **This supersedes the Architecture, Daemon API and UX sections below.**
+> - **[FINDINGS.md](FINDINGS.md)** — the chronological research log, including what failed and what was retracted.
+> - **DESIGN.md** (this file) — why the product is shaped the way it is, and what was planned but not built (Phase 2 and 3 below are still unbuilt).
+
 This document is written for a fresh Claude session that will build the
 application. It assumes zero context. Read the whole thing before writing
 code. The repository you are working in already contains the memory kernel;

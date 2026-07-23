@@ -31,7 +31,13 @@ import urllib.request
 # ---- backend ladder: frontier key, else local Ollama ----------------------
 
 def _load_env():
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    # Walk up from this script to find the repo-root .env (these scripts live
+    # in bench/ and harnesses/, but .env stays at the root).
+    d = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(d, ".env")
+    while not os.path.exists(path) and os.path.dirname(d) != d:
+        d = os.path.dirname(d)
+        path = os.path.join(d, ".env")
     if os.path.exists(path):
         for line in open(path):
             line = line.strip()

@@ -2,7 +2,10 @@
 name = "continuum"
 version = "0.1.0"
 edition = "2021"
-description = "Continuum — a Memory Operating System kernel for LLMs. Rust port of the Python-era prototype."
+description = "Continuum: a local-first memory layer for LLMs. A Rust kernel that pages a versioned, on-disk memory store into the context window per query, and a daemon and web app built on it."
+
+[workspace]
+members = [".", "kvpoc", "daemon"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -20,12 +23,6 @@ path = "src/bin/eval.rs"
 name = "stress"
 path = "src/bin/stress.rs"
 
-[profile.release]
-opt-level = 3
-
-[workspace]
-members = [".", "kvpoc", "daemon"]
-
 [[bin]]
 name = "transfer"
 path = "src/bin/transfer.rs"
@@ -33,3 +30,6 @@ path = "src/bin/transfer.rs"
 [[bin]]
 name = "babilong"
 path = "src/bin/babilong.rs"
+
+[profile.release]
+opt-level = 3
