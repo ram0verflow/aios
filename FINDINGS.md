@@ -822,3 +822,55 @@ excluding them the figure is 840/1496 (56.1%), still inside noise of the llama
 result. And these numbers stay **out of README** until the reproduction gate
 below passes, since a plumbing change sits between them and every earlier
 number.
+
+### The Nova+calc run is void, and finding out why exposed what LongMemEval was actually measuring
+
+The calculator-path run scored 25 of 100 against the 30 of 100 baseline, which
+would read as the calculator costing five questions. It is not a result and it
+is discarded. The `--calc` path appended the daemon's `CALC_NEEDED` rule to the
+prompt but never implemented the **action loop** that resolves it. `CALC_NEEDED`
+is handled in the daemon's worker, not in the kernel, so the model emitted
+`CALC_NEEDED: 62000 - 50000`, nothing intercepted it, and the raw protocol line
+was scored as the answer. The run measures a harness with a missing handler.
+
+Checking whether the baseline was contaminated the same way turned up something
+much more important, which changes the interpretation of every LongMemEval
+number reported above:
+
+| run | unresolved CONTEXT_NEEDED | unresolved CALC_NEEDED | share of all answers |
+|---|---|---|---|
+| llama 3.1 8B | 51/120 | 0 | 42% |
+| Nova Pro | 72/120 | 0 | 60% |
+| Nova Pro + calc | 75/120 | 14/120 | 74% |
+
+`kernel.query` detects a page fault, calls `prepare_fault`, and regenerates only
+if the re-page produced something. When it does not, `result.response` keeps the
+fault line, so a bare `CONTEXT_NEEDED: <topic>` becomes the final answer and is
+graded wrong. **On the Nova baseline, 57 of the 100 non-preference questions
+were answered with an unresolved fault line.** Of roughly 70 wrong answers, only
+about 13 were genuine attempts that got the answer wrong. The rest were
+non-answers.
+
+So the earlier characterization needs correcting. The dominant LongMemEval
+failure is **not** the model reasoning badly over retrieved evidence. It is the
+model declining to answer, faulting, and the second hop failing to rescue it.
+The structural pass already showed the evidence was usually present (32 of 33
+knowledge-update evidence turns, 37 of 40 multi-session evidence sessions), so
+the shape is: evidence arrives, the model does not recognise it as sufficient,
+it faults, the re-page finds nothing new because it names the gap in the model's
+vocabulary and searches lexically in the user's, and the protocol line is what
+gets graded.
+
+That also explains a result that looked strange in isolation. Nova Pro's
+unresolved rate is **higher** than the 8B's, 60% against 42%, on a benchmark
+where every question is answerable. The same refusal discipline that made Nova
+20 points better on LoCoMo's adversarial questions is a liability here: it is
+more willing to say it does not have something. The two benchmarks are measuring
+opposite sides of one disposition, and neither number means much without the
+other.
+
+Consequences, recorded before the next run rather than after: the re-page hit
+rate is not a side metric for the paired experiment, it is the central one, and
+the reach half (`--ungate`) targets exactly the mechanism that is failing here.
+The calc question is unanswered and needs the action loop implemented in the
+harness before it can be asked again.
