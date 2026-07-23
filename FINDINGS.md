@@ -671,3 +671,84 @@ the gold, which is the wrong question for a rubric. LongMemEval's own evaluation
 uses category-specific prompts. The preference number below is therefore not
 comparable to published LongMemEval preference scores and is reported separately
 for that reason.
+
+### LongMemEval, llama 3.1 8B, per category
+
+**Read the counts, not percentages, and treat small gaps as noise.** Every
+number below is out of 20. At n=20 the difference between 9 and 11 is one or
+two questions and means nothing; a gap needs to be roughly 5 questions before
+it is worth a sentence. This project has been burned repeatedly by exactly this
+(a 5-of-5 regression that was retrieval luck, a drive case that flipped verdicts
+on identical retrieval), so the caveat leads rather than trails.
+
+| category | correct | n |
+|---|---|---|
+| single-session-user | 11 | 20 |
+| single-session-assistant | 9 | 20 |
+| multi-session | 5 | 20 |
+| knowledge-update | 3 | 20 |
+| temporal-reasoning | 1 | 20 |
+
+Answer model llama 3.1 8B, judge claude haiku 4.5, deterministic stratified
+sample (first 20 by question id per category), single pass plus one fault, 30
+message cap, haystacks of about 490 turns per question.
+
+The single-session-preference category is deliberately not in that table. Its
+golds are rubric text describing what a good answer would do, a median of 376
+characters against 4 to 33 for every other category, and the judge is asked
+whether the answer conveys the same key information as the gold, which is not
+the question a rubric poses. LongMemEval's own evaluation uses category
+specific prompts. It scored 1 of 20 here and that number measures the mismatch,
+not the capability, so it is reported as unmeasured by this harness rather than
+published as a score.
+
+### The prediction was half right, and the half it got wrong is the interesting half
+
+Written down before the run: strong on single-session recall and knowledge
+update, weak on multi-session synthesis and temporal reasoning.
+
+Single-session recall: confirmed, the two best categories. Multi-session and
+temporal reasoning: confirmed, 5 and 1. **Knowledge update: wrong, badly.** It
+was predicted strong on the strength of this project's own harness scoring
+contradiction chains 7 of 7, and it came in at 3 of 20, tied for the worst
+result on the board.
+
+The failures say why, and it is not a retrieval miss. Asked "how many engineers
+do I lead when I *just started* my new role", the system answered with the
+current headcount. Its own harness had only ever asked the other question,
+which value is current now, and that is precisely what this design is built to
+answer: corrections write a new version, summaries supersede, the archive
+demotes. Optimising for "what is true now" is the same thing as being bad at
+"what was true then", and the local harness could not see that because it never
+asked. A third-party benchmark asked, and the answer was 3 of 20. That is the
+single most useful thing this round produced, and it is an argument for
+outside benchmarks in general: the local harness was measuring the half of the
+capability the design already had.
+
+### What the failures actually are, which changes what the numbers mean
+
+Reading every failure, most are not retrieval failures. They are arithmetic:
+"$60 divided by 4 or 5 coworkers" when the gold is $12 each, 9 days when the
+gold is 30, 17 postcards when the gold is 25. Of the 120 sampled questions, 61
+ask for a count, a quantity, or an interval.
+
+This matters because of a split that had gone unnoticed: **the benchmark path
+and the shipped daemon do not use the same prompt.** `eval` and the LongMemEval
+runner use the kernel's `SYSTEM_TEMPLATE`, which contains no `CALC_NEEDED`
+rule. The deterministic calculator, the one measured at 7 of 7 when both
+operands were in context, lives only in the daemon's companion prompt. So a
+benchmark that is 51% arithmetic is being answered by a model doing mental
+arithmetic, while the thing that actually ships would have routed those
+computations through an exact evaluator.
+
+That is a statement about what these numbers measure, not an excuse for them,
+and deliberately not a reason to edit the prompt: changing it to chase a score
+is exactly the move this project keeps refusing. The clean follow-up is to run
+the same benchmark through the daemon path and report both, which measures the
+shipped system rather than a subset of it.
+
+One defect worth fixing on its own merits, found in the transcripts: two
+predictions leaked internal scaffolding into the user-visible answer, one
+emitting a raw `[TIME NOTES]` block and one a `/social/how_many_months_have_passed`
+namespace slug. That is a formatting bug in the answer path, independent of
+whether the answer was right.

@@ -34,6 +34,10 @@ fn main() {
     let mut model = "llama3.1:8b".to_string();
     let mut out_dir = "fullbench".to_string();
     let mut tag = String::new();
+    // Structural pass: ingest + route only, no generation. The routed set is
+    // deterministic (embeddings + BM25), so reachability measured here is valid
+    // for the graded run over the same sample.
+    let mut structural_only = false;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -42,6 +46,7 @@ fn main() {
             "--model" => { model = args[i + 1].clone(); i += 2; }
             "--out-dir" => { out_dir = args[i + 1].clone(); i += 2; }
             "--tag" => { tag = args[i + 1].clone(); i += 2; }
+            "--structural-only" => { structural_only = true; i += 1; }
             other => { eprintln!("unknown arg {other}"); i += 1; }
         }
     }
@@ -139,14 +144,18 @@ fn main() {
                 .map(|(_, s)| *s)
                 .collect();
 
-            let mut kernel = Kernel::new(ollama.clone(), KernelConfig::default());
-            kernel.mount(Box::new(d));
-            let result = kernel.query(question, &[]);
-            let pred = result.response.trim().to_string();
+            let (pred, faulted, loaded) = if structural_only {
+                (String::new(), false, routed.len())
+            } else {
+                let mut kernel = Kernel::new(ollama.clone(), KernelConfig::default());
+                kernel.mount(Box::new(d));
+                let r = kernel.query(question, &[]);
+                (r.response.trim().to_string(), r.page_faulted, r.messages_loaded)
+            };
 
             let rec = serde_json::json!({
                 "qid": qid, "cat": cat, "question": question, "gold": gold, "pred": pred,
-                "fault": result.page_faulted, "loaded": result.messages_loaded,
+                "fault": faulted, "loaded": loaded,
                 "haystack_turns": turns, "model": model,
                 "evidence_turns_total": ev_total, "evidence_turns_loaded": ev_loaded,
                 "evidence_sessions_total": ev_sessions_total.len(),
@@ -156,8 +165,8 @@ fn main() {
             writeln!(f, "{rec}").ok();
             done += 1;
             eprintln!(
-                "[{done}/{total}] {cat} {qid} turns={turns} loaded={} fault={} ({:.0}s elapsed)",
-                result.messages_loaded, result.page_faulted, t_start.elapsed().as_secs_f32()
+                "[{done}/{total}] {cat} {qid} turns={turns} loaded={loaded} ev={ev_loaded}/{ev_total} sess={}/{} ({:.0}s)",
+                ev_sessions_loaded.len(), ev_sessions_total.len(), t_start.elapsed().as_secs_f32()
             );
         }
         eprintln!("[wrote {path}]");
