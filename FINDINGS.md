@@ -789,3 +789,36 @@ The one caveat in the other direction: "multi-session" here mostly means two
 sessions, not ten. Whether a 30 message cap holds up when evidence is spread
 across many more sessions is not tested by this data, and this result should not
 be read as saying the budget never binds.
+
+### Nova Pro on LoCoMo: the answer model barely moves the answerable score, and moves refusal a lot
+
+Same held-out protocol, same 30 message cap, same retrieval, same prompts, same
+judge; the only variable is the answer model, routed through the new
+`--provider bedrock` path.
+
+| answer model | answerable | adversarial refused |
+|---|---|---|
+| llama 3.1 8B (existing) | 837/1542 (54.3%) | (41.7%) |
+| Nova Pro | 840/1540 (54.5%) | 275/446 (61.7%) |
+
+**Answerable accuracy is unchanged.** 54.5 against 54.3 across more than 1500
+questions is not a difference. A substantially stronger hosted model, given the
+same working set, answers the same proportion correctly. That is the strongest
+evidence yet for something the ablations already hinted at when three model
+families landed between 45 and 50 percent on this stack: on this benchmark the
+binding constraint is what retrieval puts in the window, not the model reading
+it. It is also the cleanest argument against reading any memory system's
+headline LoCoMo number as a property of its memory layer.
+
+**Refusal discipline is where the model tier shows up.** 61.7% against 41.7% is
+20 points and far outside noise. Nova Pro is much better at declining to answer
+questions the context cannot support, which is exactly the axis the fine tune
+exists to install in the smaller model and the axis where model families
+differed most in the earlier sweep.
+
+Two caveats attached to the Nova number. **44 of 1540 answers (2.9%) were
+Bedrock transport failures** scored as misses, because `converse` has no retry;
+excluding them the figure is 840/1496 (56.1%), still inside noise of the llama
+result. And these numbers stay **out of README** until the reproduction gate
+below passes, since a plumbing change sits between them and every earlier
+number.
