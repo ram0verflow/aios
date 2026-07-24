@@ -1,0 +1,14 @@
+[9:00 am on 1 October, 2023] user: My dentist appointment is on October 14th.
+[9:00 am on 1 October, 2023] user: Heads up: I'm pushing everything in my calendar back by exactly one week.
+[9:00 am on 1 October, 2023] user: My rent is 1800 (rent, said 1 Oct) a month.
+[9:00 am on 1 October, 2023] user: My landlord told me everything goes up by 200 (everything goes next, said 1 Oct) starting next month.
+[9:00 am on 1 October, 2023] user: My main editor is vim.
+[9:00 am on 1 October, 2023] user: I switched my main editor to helix this week.
+[9:00 am on 1 October, 2023] user: Helix didn't stick, I'm back on neovim as my main editor.
+[9:00 am on 1 October, 2023] user: Final answer: I've settled on zed as my main editor for good.
+[9:00 am on 1 October, 2023] user: Our team standup is at 9:00 (team standup, said 1 Oct).
+[9:00 am on 1 October, 2023] user: Standup moved to 9:30 (standup moved sprint, said 1 Oct) from this sprint.
+[9:00 am on 1 October, 2023] user: Standup is now 8:45 (standup earlier slot, said 1 Oct), the earlier slot won the vote.
+[9:00 am on 1 October, 2023] user: My API plan allows 50 thousand (api plan, said 1 Oct) requests per month.
+[9:00 am on 1 October, 2023] user: I've burned through about 62 thousand (burned far, said 1 Oct) calls so far this month.
+[TIME NOTES — relative dates resolved by the OS]

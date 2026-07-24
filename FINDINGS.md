@@ -1029,3 +1029,82 @@ if there is one, has to exclude date-like values from the predicate entirely and
 probably drop the stated-date from the parenthetical for anything the model is
 being asked to reason about temporally. That is not a tuning change, it is a
 different hypothesis, and it should be measured the same way.
+
+### Annotation, finally tested where it could help: one real gain, and the mechanism that decides the rest
+
+The previous two rounds measured annotation only on a guard set that scores
+15/15 at baseline, where it could only stay flat or regress. This round paired
+it with a benefit set: five cases where the baseline fails, built in LongMemEval
+format so the runner ingests them with real session dates and judge_frontier
+grades them. One constructed conflation case plus four real LongMemEval items
+from the categories scoring 0/20 and 3/20, including the engineers-4-then-5
+knowledge-update item. Three repeats per arm, llama 3.1 8B, verdict-only
+grading, settings read back per arm. Every rendered prompt was read before
+grading (results/benefit_prompts_annotate_*.txt, results/guard_rendered_*).
+
+Benefit set, per case:
+
+| case | annotate off | annotate on |
+|---|---|---|
+| knowledge-update 031748ae (engineers 4 then 5) | 0/3 | **3/3** |
+| knowledge-update 06db6396 (painting projects) | 0/3 | 0/3 |
+| temporal-reasoning 08f4fc43 | 0/3 | 0/3 |
+| temporal-reasoning 0bb5a684 | 0/3 | 0/3 |
+| conflation: drive capacity | 0/3 | 0/3 (inconclusive, below) |
+
+Guard set, per case:
+
+| case | annotate off | annotate on |
+|---|---|---|
+| synthesis: date shift | 3/3 | 0/3 |
+| synthesis: arithmetic | 3/3 | 3/3 |
+| current-vs-ever: editor | 3/3 | 0/3 |
+| current-vs-ever: standup | 3/3 | 3/3 |
+| cross-branch: over allowance | 3/3 | 0/3 |
+
+The one real gain is verified in the reply text, not inferred from the score.
+Asked how many engineers it led when it started and how many now, the baseline
+answered "4 engineers. 4 engineers.", collapsing the two eras to one. With
+annotation both counts were surfaced as distinct marked values and it answered
+"4 engineers. 5 engineers.", correct on both. That is exactly the
+knowledge-update capability annotation was built for, and it is the first
+positive signal for annotation in this thread. The entity labels were still
+garbage ("5 engineers (group manager)"); what mattered was that two different
+values existed and were both present, not the quality of the label.
+
+The date fix held. In the guard's rendered transcript, "October 14th" is no
+longer annotated, because a date now has its own type key and there is no other
+date to collide with. The two-bare-dates defect from last round is gone.
+
+But the guard still regresses three cases, and reading the rendered prompt shows
+why, and it is the finding that governs everything. The guard plants five
+unrelated topics into one transcript, so annotating every topic's numbers
+injects foreign metadata into every question's working set. The clearest proof
+is the editor case: it contains no numeric values of its own, yet it regresses
+from 3/3 to 0/3, and the rendered transcript shows its working set carrying six
+annotations from rent, standup and the API plan. Under that added noise the
+model confabulates ("Neovim, often affectionately referred to as zed"), which
+the fixed grader now correctly fails rather than passing on the substring.
+
+So the two results are not in tension, they are the same principle measured from
+both sides. Annotation helps when the values in the working set are relevant to
+the question, and hurts when the working set mixes topics and annotation
+amplifies the irrelevant ones. The benefit set has one topic per question, close
+to a clean working set, and annotation helped the one case whose failure was
+undifferentiated values. The guard has five topics per transcript, and
+annotation turned each question's context into mostly-foreign annotated noise.
+
+This is a real constraint, not a tuning detail, because the shipped system's
+working set on any non-trivial corpus is mixed, not single-topic. Annotation as
+built pays off only where retrieval already delivered a topically clean set. The
+honest next question is whether annotation can be made relevant-scoped without a
+relevance judgment (which provably cannot separate the drive case), or whether
+it has to ride on a retrieval path that returns cleaner sets to begin with.
+
+Two cases stayed dark and both are recorded as inconclusive rather than
+negative. The conflation case answered a bare "No." in all three annotated runs,
+which is the correct verdict but too terse for the judge to credit that the 140
+trap was avoided, a flaw in how that case was posed. The temporal cases need
+interval arithmetic (30 days between two dates) that annotation does not
+provide; marking which date is which is necessary but not sufficient without the
+calculator, which was out of scope this round.
