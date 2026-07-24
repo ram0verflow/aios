@@ -205,6 +205,17 @@ impl HierarchicalTopicDriver {
             "years", "year", "thousand", "million", "requests", "calls", "dollars", "usd",
             "percent", "%", "times", "am", "pm",
         ];
+        // Month names must never become part of an entity: "dentist appointment
+        // october" is the date leaking into the thing's identity.
+        const MONTH_WORDS: &[&str] = &[
+            "january", "february", "march", "april", "may", "june", "july",
+            "august", "september", "october", "november", "december",
+            "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+        ];
+        const PREPS: &[&str] = &[
+            "through", "starting", "per", "over", "under", "into", "onto", "upon",
+            "before", "after", "since", "until", "during", "within", "across",
+        ];
         const COUNT_NOUNS: &[&str] = &[
             "people", "person", "engineers", "engineer", "employees", "staff",
             "members", "developers", "designers", "candidates", "attendees",
@@ -220,6 +231,9 @@ impl HierarchicalTopicDriver {
                 && !SKIP.contains(&c.as_str())
                 && !UNITS.contains(&c.as_str())
                 && !COUNT_NOUNS.contains(&c.as_str())
+                && !MONTH_WORDS.contains(&c.as_str())
+                && !PREPS.contains(&c.as_str())
+                && !w.contains('\'')
         };
 
         let words: Vec<&str> = msg.text.split_whitespace().collect();
@@ -244,10 +258,25 @@ impl HierarchicalTopicDriver {
             // reads as "15 people", but only a measurement unit makes a type.
             let unit = if measured || counted { next.clone() } else { String::new() };
             let qty = if unit.is_empty() { c.clone() } else { format!("{c} {unit}") };
-            // Structural type key: the unit if measured, else a plain count.
-            // "12 engineers" and "15 people" are both counts and therefore
-            // confusable; "500 gigabytes" and "9 hours" are not.
-            let type_key = if measured { next.clone() } else { "count".to_string() };
+            // Structural type key. Dates and times get their own, so that
+            // "another value of the same type" means another DATE, not merely
+            // another number: a calendar day colliding with a rent figure is
+            // what made October 14th get annotated as though it were a count.
+            let prev = if i > 0 { clean(words[i - 1]) } else { String::new() };
+            let is_time = w.contains(':');
+            let is_date = !is_time
+                && (MONTH_WORDS.contains(&next.as_str())
+                    || MONTH_WORDS.contains(&prev.as_str())
+                    || c.ends_with("th") || c.ends_with("st") || c.ends_with("nd") || c.ends_with("rd"));
+            let type_key = if is_time {
+                "time".to_string()
+            } else if is_date {
+                "date".to_string()
+            } else if measured {
+                next.clone()
+            } else {
+                "count".to_string()
+            };
 
             // The entity is the content words nearest the number, looking both
             // ways: "the basic tier caps at 100 gigabytes" names it before,
@@ -268,7 +297,11 @@ impl HierarchicalTopicDriver {
             }
             ent.truncate(3);
             let entity = if ent.is_empty() { "unspecified".to_string() } else { ent.join(" ") };
-            out.push((i, qty, entity, when.clone(), type_key));
+            // "said" marks the second date as when the value was STATED. Without
+            // it a date-valued item renders as two bare adjacent dates with
+            // nothing saying which is which, which is fatal exactly where the
+            // question is temporal.
+            out.push((i, qty, entity, format!("said {when}"), type_key));
         }
         out
     }
@@ -861,7 +894,7 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
             };
 
             // Pass two: rewrite ambiguous quantities in place as a compact
-            // parenthetical, "500 gigabytes (external drive, 2 Mar)". Inline
+            // parenthetical, "500 gigabytes (external drive, said 2 Mar)". Inline
             // rather than on its own line, so it reads as metadata about the
             // value rather than as another fact competing with it.
             let line = if self.route_cfg.annotate_values {
@@ -1428,9 +1461,9 @@ mod annotation_tests {
         let e = d.ingest_turn("user", "My photo library weighs in at 620 gigabytes.", "6:40 pm on 12 August, 2023");
         d.route_cfg.annotate_values = true;
         let (ctx, _) = d.load_messages(&[a, b, c, e], 4000);
-        for want in ["500 gigabytes (external drive, 2 Mar)",
-                     "100 gigabytes (basic tier, 3 Mar)",
-                     "620 gigabytes (photo library, 12 Aug)"] {
+        for want in ["500 gigabytes (external drive, said 2 Mar)",
+                     "100 gigabytes (basic tier, said 3 Mar)",
+                     "620 gigabytes (photo library, said 12 Aug)"] {
             assert!(ctx.contains(want), "missing {want:?}:\n{ctx}");
         }
         assert!(ctx.contains("140 gigabytes ("), "140 not annotated:\n{ctx}");
@@ -1441,8 +1474,8 @@ mod annotation_tests {
         let y = d2.ingest_turn("user", "There are 15 people on the platform team now.", "3:30 pm on 20 August, 2023");
         d2.route_cfg.annotate_values = true;
         let (ctx2, _) = d2.load_messages(&[x, y], 4000);
-        assert!(ctx2.contains("12 engineers (budgeted, 14 Feb)"), "12 not bound:\n{ctx2}");
-        assert!(ctx2.contains("15 people (platform team, 20 Aug)"), "15 not bound:\n{ctx2}");
+        assert!(ctx2.contains("12 engineers (budgeted, said 14 Feb)"), "12 not bound:\n{ctx2}");
+        assert!(ctx2.contains("15 people (platform team, said 20 Aug)"), "15 not bound:\n{ctx2}");
     }
 
     /// Selectivity: a value with no same-type rival is left alone, so

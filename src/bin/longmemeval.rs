@@ -56,6 +56,10 @@ fn main() {
     // for the graded run over the same sample.
     let mut structural_only = false;
     let mut ungate = false;
+    // Print the assembled working set per question. Reading the rendered text
+    // for every case before grading is how the date defect should have been
+    // caught two rounds earlier.
+    let mut dump_context = false;
     let mut annotate = false;
     // Same plumbing as eval: only the completion call moves. Retrieval,
     // embeddings, prompts and the cap are unchanged.
@@ -72,6 +76,7 @@ fn main() {
             "--tag" => { tag = args[i + 1].clone(); i += 2; }
             "--structural-only" => { structural_only = true; i += 1; }
             "--ungate" => { ungate = true; i += 1; }
+            "--dump-context" => { dump_context = true; i += 1; }
             "--annotate" => { annotate = true; i += 1; }
             "--calc" => { calc_path = true; i += 1; }
             "--provider" => { provider = args[i + 1].clone(); i += 2; }
@@ -171,6 +176,13 @@ fn main() {
             // Capture the driver's routing trace so --ungate is auditable in
             // the output rather than assumed to have taken effect.
             let route_trace = d.last_path.borrow().clone();
+            if dump_context {
+                let (ctx, toks) = d.load_messages(&routed, 4000);
+                println!("\n########## {qid} [{cat}] annotate={annotate} (~{toks} tokens)");
+                println!("Q: {question}");
+                println!("GOLD: {gold}");
+                println!("--- working set as the model receives it ---\n{ctx}\n");
+            }
             let ev_total = evidence.len();
             let ev_loaded = evidence.iter().filter(|(i, _)| routed.contains(i)).count();
             let ev_sessions_total: std::collections::BTreeSet<usize> =
