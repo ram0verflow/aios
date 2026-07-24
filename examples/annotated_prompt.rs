@@ -31,7 +31,23 @@ fn dump(title: &str, facts: &[(&str, &str)], annotate: bool) {
     println!("{ctx}");
 }
 
+/// The discriminate harness plants EVERY case's mentions into one transcript,
+/// so the working set for any single question also holds the other cases'
+/// numbers. Reproduced faithfully here, because an isolated two-message version
+/// has no same-type rival and selectivity correctly annotates nothing, which
+/// hides the mechanism entirely.
+const DSHIFT: &[(&str, &str)] = &[
+    ("My dentist appointment is on October 14th.", "9:00 am on 1 October, 2023"),
+    ("Heads up: I'm pushing everything in my calendar back by exactly one week.", "9:00 am on 2 October, 2023"),
+    ("My rent is 1800 a month.", "9:00 am on 3 October, 2023"),
+    ("My landlord told me everything goes up by 200 starting next month.", "9:00 am on 4 October, 2023"),
+    ("My API plan allows 50 thousand requests per month.", "9:00 am on 5 October, 2023"),
+    ("I've burned through about 62 thousand calls so far this month.", "9:00 am on 6 October, 2023"),
+];
+
 fn main() {
+    dump("DATE-SHIFT CASE", DSHIFT, false);
+    dump("DATE-SHIFT CASE", DSHIFT, true);
     dump("DRIVE CASE", DRIVE, false);
     dump("DRIVE CASE", DRIVE, true);
     dump("ENG CASE", ENG, false);

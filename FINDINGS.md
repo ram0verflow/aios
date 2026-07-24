@@ -959,3 +959,73 @@ size this log has been burned by repeatedly, so it is a signal to measure
 properly rather than a verdict to build on. But it is a negative signal, and the
 paired hypothesis (that annotation supplies the precision ungating costs) cannot
 be assumed to survive contact with a real context budget.
+
+### Annotation rebuilt compact and selective, measured with repeats, and it is worse
+
+Three fixes landed before the run, because the previous comparison could not be
+trusted. The discriminate harness graded four of its five cases by substring
+needle and only the composition case by judge, which is how "Neovim (often
+affectionately referred to as zed)" passed a question whose answer is zed; every
+case now carries a ground truth and all grading goes through the judge, no
+needles anywhere. Artifacts were named from `store_context` alone, so two arms
+varying a different flag both wrote `discriminate_off.json` and the second
+destroyed the first; names now carry the whole arm configuration, read back from
+the daemon, with the settings stored beside the results.
+
+Annotation itself was rebuilt compact (inline parenthetical instead of a
+separate line that read as another fact) and selective (a value is annotated
+only when the working set holds another value of the same type, where type is
+the measurement unit if measured and a plain count otherwise: counting and unit
+collision, deterministic, never a relevance judgment). Drive case cost fell from
+73 -> 129 tokens to 73 -> 95, a +30% overhead instead of +77%.
+
+Three repeats per arm, llama 3.1 8B, settings read back per arm:
+
+| case | annotate off | annotate on |
+|---|---|---|
+| synthesis: date shift | 3/3 | 0/3 |
+| synthesis: arithmetic | 3/3 | 3/3 |
+| current-vs-ever: editor | 3/3 | 0/3 |
+| current-vs-ever: standup | 3/3 | 3/3 |
+| cross-branch: over allowance | 3/3 | 0/3 |
+| total | 15/15 | 6/15 |
+
+Perfectly consistent across repeats, so this is not the n of 1 coin flip the
+previous round measured. Compacting the format did not rescue it: the cheaper
+version regresses harder than the expensive one did.
+
+The fixed grader earned its place immediately. The editor case now reads STALE
+rather than PASS, correctly catching the Neovim confabulation that substring
+matching had cleared, which means the previous round's 4/5 was really 3/5.
+
+Reading the literal prompt text shows why, and the fault is in the predicate,
+not in the idea. The harness plants every case's mentions into one transcript,
+so the date-shift question's working set also holds the rent and API numbers.
+That makes "October 14th" collide as a count, and it gets annotated:
+
+```
+My dentist appointment is on October 14th (dentist appointment october, 1 Oct).
+```
+
+The parenthetical stamps 1 October, the date the message was stated, directly
+beside 14 October, the date of the appointment. Two dates adjacent, one of them
+wrong for the question being asked, dressed as metadata. The case requires
+resolving 14 October to 21 October, and the annotation asserts a third date
+alongside. Three defects, all visible in the text rather than inferred:
+
+1. **Dates are annotated as counts.** A date is not a quantity, and the type key
+   has no notion of that, so calendar numbers collide with rent and call counts.
+2. **The stated-date collides with the value's own date.** For any date-valued
+   fact the annotation fights the TIME NOTES resolution that already works.
+3. **Entity extraction degrades on verb-heavy clauses**, yielding "everything
+   goes starting" and "i've burned through" as entity names.
+
+So the verdict is narrower than "annotation does not work". Annotation of
+same-unit measured quantities is untouched by this evidence, and the drive case
+still renders exactly as intended. What is falsified is annotating everything
+numeric with a stated-date: on dates it is actively harmful, and the harness's
+shared transcript makes almost every number collide as a count. The next version,
+if there is one, has to exclude date-like values from the predicate entirely and
+probably drop the stated-date from the parenthetical for anything the model is
+being asked to reason about temporally. That is not a tuning change, it is a
+different hypothesis, and it should be measured the same way.
