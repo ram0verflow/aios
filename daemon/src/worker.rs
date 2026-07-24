@@ -175,6 +175,7 @@ fn build_worker(shared: Arc<Shared>, s: &Settings) -> Worker {
         driver.set_embedder(ollama.clone());
     }
     driver.route_cfg.max_load = s.max_retrieved.max(1);
+    driver.route_cfg.annotate_values = s.annotate_values;
 
     let config = KernelConfig {
         num_ctx: s.num_ctx,

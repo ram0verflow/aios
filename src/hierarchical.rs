@@ -171,37 +171,88 @@ impl HierarchicalTopicDriver {
         }
     }
 
-    /// Bookkeeping, not judgment: every quantity in the loaded messages, paired
-    /// with the clause it came from and the date it was stated. Deterministic
-    /// scan of the message index. The point is that two same-unit quantities
-    /// ("140 gigabytes", "620 gigabytes") stop being interchangeable tokens and
-    /// carry the thing they belong to and the time they were true.
-    fn value_ledger(&self, indices: &[usize]) -> Vec<String> {
+    /// Deterministic value annotation. For every quantity in a loaded message,
+    /// name what it belongs to and when it was stated, using only what the
+    /// message index already holds: the message's own words and its timestamp.
+    ///
+    /// Never a relevance judgment. That is the whole point: the drive case has
+    /// two same-unit quantities that are both topically valid, so no relevance
+    /// filter can separate them, which is what falsified entity scoping before
+    /// it ever ran. Bookkeeping can, because it does not have to decide which
+    /// value is wanted, only which thing each value belongs to.
+    ///
+    /// Returns (quantity, entity phrase, rendered date) per value.
+    fn annotate_message(&self, msg: &Message) -> Vec<(String, String, String)> {
+        const SKIP: &[&str] = &[
+            "the", "a", "an", "my", "your", "our", "their", "his", "her", "its", "this", "that",
+            "these", "those", "and", "or", "but", "for", "with", "from", "into", "onto", "about",
+            "there", "here", "then", "than", "when", "what", "which", "who", "how", "just",
+            "currently", "now", "also", "already", "still", "some", "any", "all", "much", "many",
+            "have", "has", "had", "was", "were", "are", "is", "been", "being", "get", "got",
+            "i'm", "im", "it's", "its", "we", "you", "they", "he", "she", "it",
+            // Stative verbs that sit between a thing and its quantity; they add
+            // no identity ("external drive holds" is just "external drive").
+            "holds", "hold", "caps", "cap", "weighs", "weigh", "costs", "cost",
+            "runs", "run", "contains", "covers", "takes", "allows", "gives",
+            "left", "spent", "went", "came", "made", "said", "adds",
+        ];
+        const UNITS: &[&str] = &[
+            "gigabytes", "gigabyte", "gb", "mb", "megabytes", "tb", "terabytes", "hours", "hour",
+            "hrs", "minutes", "minute", "days", "day", "weeks", "week", "months", "month",
+            "years", "year", "thousand", "million", "requests", "calls", "dollars", "usd",
+            "percent", "%", "people", "times", "am", "pm",
+        ];
+        let clean = |w: &str| -> String {
+            w.trim_matches(|c: char| !c.is_alphanumeric() && c != '%').to_lowercase()
+        };
+        let is_content = |w: &str| -> bool {
+            let c = clean(w);
+            c.len() > 2
+                && !c.chars().all(|ch| ch.is_ascii_digit() || ch == '.' || ch == ',')
+                && !SKIP.contains(&c.as_str())
+                && !UNITS.contains(&c.as_str())
+        };
+
+        let words: Vec<&str> = msg.text.split_whitespace().collect();
+        let when = match parse_msg_date(&msg.timestamp) {
+            Some((y, m, d)) => fmt_date(y, m, d),
+            None => msg.timestamp.clone(),
+        };
         let mut out = Vec::new();
-        for &idx in indices {
-            let Some(msg) = self.msg_by_idx(idx) else { continue };
-            let words: Vec<&str> = msg.text.split_whitespace().collect();
-            let when = match parse_msg_date(&msg.timestamp) {
-                Some((y, m, d)) => fmt_date(y, m, d),
-                None => msg.timestamp.clone(),
-            };
-            let mut per_msg = 0;
-            for (i, w) in words.iter().enumerate() {
-                let has_digit = w.chars().any(|c| c.is_ascii_digit());
-                if !has_digit || per_msg >= 2 {
+        for (i, w) in words.iter().enumerate() {
+            let c = clean(w);
+            let numeric = !c.is_empty() && c.chars().next().map(|ch| ch.is_ascii_digit()).unwrap_or(false);
+            if !numeric || out.len() >= 3 {
+                continue;
+            }
+            // The quantity carries its unit when the next word is one.
+            let unit = words
+                .get(i + 1)
+                .map(|n| clean(n))
+                .filter(|n| UNITS.contains(&n.as_str()))
+                .unwrap_or_default();
+            let qty = if unit.is_empty() { c.clone() } else { format!("{c} {unit}") };
+
+            // The entity is the content words nearest the number, looking both
+            // ways: "the basic tier caps at 100 gigabytes" names it before,
+            // "there are 15 people on the platform team" names it after.
+            let lo = i.saturating_sub(5);
+            let hi = (i + 6).min(words.len());
+            let mut ent: Vec<String> = Vec::new();
+            for j in lo..hi {
+                if j == i {
                     continue;
                 }
-                // The clause around the number names what it belongs to.
-                let lo = i.saturating_sub(6);
-                let hi = (i + 3).min(words.len());
-                let clause = words[lo..hi].join(" ");
-                let qty = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '%');
-                out.push(format!("- {qty} — \"{clause}\" ({}, stated {when})", msg.speaker));
-                per_msg += 1;
-                if out.len() >= 16 {
-                    return out;
+                if is_content(words[j]) {
+                    let c = clean(words[j]);
+                    if !ent.contains(&c) {
+                        ent.push(c);
+                    }
                 }
             }
+            ent.truncate(3);
+            let entity = if ent.is_empty() { "unspecified".to_string() } else { ent.join(" ") };
+            out.push((qty, entity, when.clone()));
         }
         out
     }
@@ -755,6 +806,10 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
     fn load_messages(&self, indices: &[usize], budget_tokens: usize) -> (String, usize) {
         let mut parts = Vec::new();
         let mut notes: Vec<String> = Vec::new();
+        // (entity, date, quantity) for every annotated value, so an attribute
+        // with several values can be rendered as a timeline instead of the
+        // model silently picking one.
+        let mut annotated: Vec<(String, String, String)> = Vec::new();
         let mut tokens = 0usize;
         for &idx in indices {
             let Some(msg) = self.msg_by_idx(idx) else { continue };
@@ -763,11 +818,28 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
             } else {
                 format!("[{}] {}: {}", msg.timestamp, msg.speaker, msg.text)
             };
-            let t = line.len() / 4;
+            // Inline annotation: every quantity in this message carries what it
+            // belongs to and when it was stated, attached to the message it
+            // came from rather than collected somewhere else.
+            let ann: Vec<String> = if self.route_cfg.annotate_values {
+                self.annotate_message(msg)
+                    .into_iter()
+                    .map(|(qty, ent, when)| {
+                        annotated.push((ent.clone(), when.clone(), qty.clone()));
+                        format!("    ^ {qty} — {ent}, stated {when}")
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let t = (line.len() + ann.iter().map(|a| a.len()).sum::<usize>()) / 4;
             if tokens + t > budget_tokens {
                 break;
             }
             parts.push(line);
+            for a in ann {
+                parts.push(a);
+            }
             tokens += t;
 
             // Deterministic temporal resolution ("MMU for dates"): if this
@@ -789,12 +861,30 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
             }
         }
         let mut context = parts.join("\n");
-        if self.route_cfg.annotate_values {
-            let ledger = self.value_ledger(indices);
-            if !ledger.is_empty() {
+        if self.route_cfg.annotate_values && !annotated.is_empty() {
+            // Where one entity carries several values, show the sequence rather
+            // than choosing: choosing silently is how a confident wrong answer
+            // gets produced, which is the failure this exists to fix.
+            let mut by_ent: std::collections::BTreeMap<String, Vec<(String, String)>> =
+                std::collections::BTreeMap::new();
+            for (ent, when, qty) in &annotated {
+                by_ent.entry(ent.clone()).or_default().push((when.clone(), qty.clone()));
+            }
+            let lines: Vec<String> = by_ent
+                .into_iter()
+                .filter(|(_, v)| {
+                    v.len() > 1 && v.iter().map(|(_, q)| q).collect::<std::collections::BTreeSet<_>>().len() > 1
+                })
+                .map(|(ent, v)| {
+                    let seq: Vec<String> =
+                        v.iter().map(|(w, q)| format!("{q} (stated {w})")).collect();
+                    format!("- {ent}: {}", seq.join(" then "))
+                })
+                .collect();
+            if !lines.is_empty() {
                 let block = format!(
-                    "\n\n[VALUE LEDGER — every quantity above, with what it belongs to and when it was stated]\n{}",
-                    ledger.join("\n")
+                    "\n\n[VALUE TIMELINE — attributes with more than one stated value, in order]\n{}",
+                    lines.join("\n")
                 );
                 tokens += block.len() / 4;
                 context.push_str(&block);
@@ -1261,35 +1351,44 @@ mod annotation_tests {
     use super::*;
     use crate::driver::MemoryIndexDriver;
 
-    /// The ledger must pair every quantity with the clause it belongs to and
-    /// the date it was stated. This is the precision half: two same-unit
-    /// numbers must stop being interchangeable tokens.
+    /// Every value must carry what it belongs to and when it was stated,
+    /// inline, attached to the message it came from. This is the precision
+    /// half: two same-unit numbers must stop being interchangeable tokens.
     #[test]
-    fn value_ledger_pairs_each_quantity_with_its_entity_and_date() {
+    fn values_are_annotated_inline_with_entity_and_date() {
         let mut d = HierarchicalTopicDriver::new("/t");
-        let a = d.ingest_turn("user", "I'm currently keeping 140 gigabytes up there.", "3:00 pm on 3 March, 2023");
+        let a = d.ingest_turn("user", "The basic tier caps at 100 gigabytes.", "3:00 pm on 3 March, 2023");
         let b = d.ingest_turn("user", "My photo library weighs in at 620 gigabytes.", "4:00 pm on 12 August, 2023");
         d.route_cfg.annotate_values = true;
         let (ctx, _) = d.load_messages(&[a, b], 4000);
 
-        assert!(ctx.contains("VALUE LEDGER"), "no ledger rendered:\n{ctx}");
-        // Each quantity carries its own clause and its own date.
-        assert!(ctx.contains("140"), "140 missing");
-        assert!(ctx.contains("620"), "620 missing");
-        assert!(ctx.contains("3 March 2023"), "140's date missing:\n{ctx}");
-        assert!(ctx.contains("12 August 2023"), "620's date missing:\n{ctx}");
-        // The clause naming what each belongs to.
-        assert!(ctx.contains("photo library"), "620's entity clause missing:\n{ctx}");
-        assert!(ctx.contains("keeping"), "140's entity clause missing:\n{ctx}");
+        assert!(ctx.contains("100 gigabytes — basic tier"), "100 not bound to its entity:\n{ctx}");
+        assert!(ctx.contains("620 gigabytes — photo library"), "620 not bound to its entity:\n{ctx}");
+        assert!(ctx.contains("stated 3 March 2023"), "100's date missing:\n{ctx}");
+        assert!(ctx.contains("stated 12 August 2023"), "620's date missing:\n{ctx}");
     }
 
-    /// Off by default: the ledger must not appear unless asked for, or every
-    /// prior measurement would silently change.
+    /// An attribute with several values must be rendered as a sequence, not
+    /// silently reduced to one. Choosing silently is how a confident wrong
+    /// answer is produced.
+    #[test]
+    fn repeated_attribute_renders_a_timeline() {
+        let mut d = HierarchicalTopicDriver::new("/t");
+        let a = d.ingest_turn("user", "The platform team has 12 engineers.", "1:00 pm on 14 February, 2023");
+        let b = d.ingest_turn("user", "The platform team has 15 engineers.", "1:00 pm on 20 August, 2023");
+        d.route_cfg.annotate_values = true;
+        let (ctx, _) = d.load_messages(&[a, b], 4000);
+        assert!(ctx.contains("VALUE TIMELINE"), "no timeline for a repeated attribute:\n{ctx}");
+        assert!(ctx.contains("then"), "timeline is not ordered:\n{ctx}");
+    }
+
+    /// Off by default, or every prior measurement would silently change.
     #[test]
     fn ledger_is_off_by_default() {
         let mut d = HierarchicalTopicDriver::new("/t");
         let a = d.ingest_turn("user", "The drive holds 500 gigabytes.", "1:00 pm on 1 May, 2023");
         let (ctx, _) = d.load_messages(&[a], 4000);
-        assert!(!ctx.contains("VALUE LEDGER"), "ledger leaked into the default path");
+        assert!(!ctx.contains(" — "), "annotation leaked into the default path:\n{ctx}");
+        assert!(!ctx.contains("VALUE TIMELINE"), "timeline leaked into the default path");
     }
 }

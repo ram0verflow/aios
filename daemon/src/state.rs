@@ -168,6 +168,9 @@ pub struct Settings {
     /// Require the model to attribute each same-unit quantity to its entity
     /// before computing (mitigation for the conflation bug, #24).
     pub attribute_before_compute: bool,
+    /// Annotate every quantity in the working set with what it belongs to and
+    /// when it was stated (the precision half; see FINDINGS).
+    pub annotate_values: bool,
 }
 
 impl Default for Settings {
@@ -190,6 +193,7 @@ impl Default for Settings {
             store_context: false,
             fault_semantic_expansion: true,
             attribute_before_compute: false,
+            annotate_values: false,
         }
     }
 }
