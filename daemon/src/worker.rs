@@ -232,6 +232,7 @@ impl Worker {
             self.kernel.config.max_response_tokens = s.max_response_tokens;
             if let Some(d) = self.kernel.driver_mut() {
                 d.set_max_load(s.max_retrieved.max(1));
+                d.set_annotate_values(s.annotate_values);
             }
             self.window.budget_tokens = s.window_budget;
         }

@@ -62,6 +62,9 @@ pub trait MemoryIndexDriver {
     /// Cap on how many messages one query may load. Default: not tunable.
     fn set_max_load(&mut self, _n: usize) {}
 
+    /// Toggle inline value annotation. Default: unsupported (no-op).
+    fn set_annotate_values(&mut self, _on: bool) {}
+
     /// Pure dense nearest neighbours over every indexed message, bypassing
     /// the candidate gate entirely. Exists for fault re-pages: the model
     /// names a gap in its own vocabulary, and when that shares no tokens

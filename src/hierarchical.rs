@@ -610,6 +610,10 @@ impl MemoryIndexDriver for HierarchicalTopicDriver {
         self.msg_by_idx(idx).map(|m| (m.speaker.clone(), m.text.clone(), m.timestamp.clone()))
     }
 
+    fn set_annotate_values(&mut self, on: bool) {
+        self.route_cfg.annotate_values = on;
+    }
+
     fn set_max_load(&mut self, n: usize) {
         self.route_cfg.max_load = n.max(1);
     }
